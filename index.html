@@ -499,6 +499,58 @@
         .peared-refresh-btn:hover {
             color: #fff;
         }
+
+        /* Voice Chat Button */
+        #voice-controls {
+            position: absolute;
+            bottom: 60px;
+            right: 10px;
+            z-index: 100;
+            display: flex;
+            gap: 8px;
+        }
+        .peared-voice-btn {
+            background: #555;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .peared-voice-btn:hover {
+            background: #666;
+        }
+        .peared-voice-btn.active {
+            background: #4CAF50;
+        }
+        .peared-voice-btn.active:hover {
+            background: #45a049;
+        }
+        .peared-voice-btn.muted {
+            background: #c0392b;
+        }
+        .peared-voice-btn.muted:hover {
+            background: #e74c3c;
+        }
+
+        /* Voice indicator in player list */
+        .player-voice-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #666;
+            margin-left: 6px;
+        }
+        .player-voice-indicator.speaking {
+            background: #4CAF50;
+            animation: pulse-voice 0.5s ease-in-out infinite alternate;
+        }
+        @keyframes pulse-voice {
+            from { transform: scale(1); opacity: 0.7; }
+            to { transform: scale(1.3); opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -517,6 +569,11 @@
         <button id="connect-btn">🎮 Host or Join</button>
         <div id="connection-status">Not connected</div>
         <div id="instructions">Arrow keys or WASD to move</div>
+
+        <!-- Voice Chat Controls -->
+        <div id="voice-controls" style="display: none;">
+            <button id="peared-voice-btn" class="peared-voice-btn">🎤 Enable Voice</button>
+        </div>
     </div>
     
     <!-- Peared Connection Popup -->
@@ -915,30 +972,173 @@ class FirebaseSignaling {
     const peared = new Peared(options);
     peared.host(playerName)     - Start hosting
     peared.join(playerName)     - Open join dialog
-    peared.send(type, data)     - Send to host (client) or broadcast (host)
-    peared.broadcast(type, data) - Send to all clients (host only)
+    peared.send(type, data)     - Send RELIABLE to host/all (ordered, guaranteed)
+    peared.sendUnreliable(type, data) - Send UNRELIABLE (fast, may drop)
+    peared.broadcast(type, data) - Reliable broadcast to all clients (host only)
+    peared.broadcastUnreliable(type, data) - Unreliable broadcast (host only)
     peared.sendTo(peerId, type, data) - Send to specific peer
     peared.getPlayers()         - Get all connected players
     peared.isHost               - Check if hosting
     peared.localPlayer          - Get local player info
+    peared.interpolator         - Built-in Interpolator for smooth rendering
+    peared.getInterpolatedState(playerId) - Get interpolated position
+    peared.pushStateForInterpolation(playerId, state) - Push state to buffer
     peared.close()              - Close all connections
     peared.showPopup()          - Show connection popup
     peared.hidePopup()          - Hide connection popup
 
+  Voice Chat API:
+    peared.enableVoice()        - Request mic access, start voice chat
+    peared.disableVoice()       - Stop voice chat
+    peared.mute() / unmute()    - Mute/unmute local microphone
+    peared.toggleMute()         - Toggle mute state, returns new state
+    peared.isVoiceEnabled()     - Check if voice chat is active
+    peared.isMuted()            - Check if local mic is muted
+    peared.setPlayerVolume(playerId, volume) - Set remote player volume (0-1)
+
   Options:
     onPlayerJoin(player)        - Called when a player joins
     onPlayerLeave(player)       - Called when a player leaves
-    onMessage(from, type, data) - Called when a game message is received
+    onMessage(from, type, data) - Called for RELIABLE messages
+    onUnreliableMessage(from, type, data) - Called for UNRELIABLE messages
     onStateChange(state, isHost)- Called when connection state changes
     getState()                  - [Host] Return current game state for new players
     onStateSync(state)          - [Client] Called with game state when joining
+    interpolationDelay          - Delay in ms for smooth interpolation (default: 100)
 
   Features:
     - Automatic state sync when players join
     - Session history (last 5 sessions saved to localStorage)
     - Quick resume from recent sessions
     - QR code and manual code connection methods
+    - UNRELIABLE channel for high-frequency position updates (no packet delay)
+    - Built-in interpolation for smooth remote player rendering
+    - Voice chat with echo cancellation, noise suppression, auto gain
 =============================================*/
+
+/*=============================================
+  INTERPOLATION HELPER
+  =============================================
+  Buffers position updates and smoothly lerps
+  between them for fluid remote player movement.
+
+  Usage:
+    const interp = new Interpolator({ delay: 100 });
+
+    // When receiving position updates:
+    interp.pushState(playerId, { x, y, angle });
+
+    // In render loop:
+    const smoothPos = interp.getState(playerId);
+=============================================*/
+
+class Interpolator {
+    constructor(options = {}) {
+        this.delay = options.delay || 100; // ms of interpolation delay
+        this.maxBufferSize = options.maxBufferSize || 10;
+        this.buffers = new Map(); // playerId -> [{ time, state }]
+    }
+
+    // Add a new state update to the buffer
+    pushState(playerId, state) {
+        if (!this.buffers.has(playerId)) {
+            this.buffers.set(playerId, []);
+        }
+
+        const buffer = this.buffers.get(playerId);
+        buffer.push({
+            time: Date.now(),
+            state: { ...state }
+        });
+
+        // Keep buffer size manageable
+        while (buffer.length > this.maxBufferSize) {
+            buffer.shift();
+        }
+    }
+
+    // Get interpolated state for a player
+    getState(playerId) {
+        const buffer = this.buffers.get(playerId);
+        if (!buffer || buffer.length === 0) return null;
+
+        // Render time is current time minus delay
+        const renderTime = Date.now() - this.delay;
+
+        // Find the two states to interpolate between
+        let before = null;
+        let after = null;
+
+        for (let i = 0; i < buffer.length; i++) {
+            if (buffer[i].time <= renderTime) {
+                before = buffer[i];
+            } else {
+                after = buffer[i];
+                break;
+            }
+        }
+
+        // If no states before render time, use oldest
+        if (!before) {
+            return buffer[0].state;
+        }
+
+        // If no states after render time, use newest
+        if (!after) {
+            return before.state;
+        }
+
+        // Interpolate between before and after
+        const range = after.time - before.time;
+        const progress = range > 0 ? (renderTime - before.time) / range : 0;
+        const t = Math.max(0, Math.min(1, progress));
+
+        return this._lerp(before.state, after.state, t);
+    }
+
+    // Linear interpolation between two states
+    _lerp(a, b, t) {
+        const result = {};
+
+        for (const key in b) {
+            if (typeof b[key] === 'number' && typeof a[key] === 'number') {
+                // Handle angle wrapping for rotation
+                if (key === 'angle' || key === 'rotation') {
+                    result[key] = this._lerpAngle(a[key], b[key], t);
+                } else {
+                    result[key] = a[key] + (b[key] - a[key]) * t;
+                }
+            } else {
+                result[key] = b[key];
+            }
+        }
+
+        return result;
+    }
+
+    // Lerp angles handling wrap-around
+    _lerpAngle(a, b, t) {
+        const diff = b - a;
+        const TAU = Math.PI * 2;
+
+        // Normalize to shortest path
+        const normalized = ((diff % TAU) + TAU + Math.PI) % TAU - Math.PI;
+        return a + normalized * t;
+    }
+
+    // Remove a player's buffer
+    removePlayer(playerId) {
+        this.buffers.delete(playerId);
+    }
+
+    // Clear all buffers
+    clear() {
+        this.buffers.clear();
+    }
+}
+
+// Expose Interpolator globally
+window.Interpolator = Interpolator;
 
 class Peared {
     constructor(options = {}) {
@@ -946,15 +1146,25 @@ class Peared {
             onPlayerJoin: options.onPlayerJoin || (() => {}),
             onPlayerLeave: options.onPlayerLeave || (() => {}),
             onMessage: options.onMessage || (() => {}),
+            onUnreliableMessage: options.onUnreliableMessage || null, // Separate handler for unreliable
             onStateChange: options.onStateChange || (() => {}),
             // State sync callbacks - for syncing game state when players join
             getState: options.getState || null,      // () => gameState (host provides current state)
             onStateSync: options.onStateSync || (() => {}),  // (state) => void (clients receive state)
+            // Interpolation settings
+            interpolationDelay: options.interpolationDelay || 100, // ms
             iceServers: options.iceServers || [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { 
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                {
                     urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
                     username: 'openrelayproject',
                     credential: 'openrelayproject'
                 }
@@ -963,10 +1173,19 @@ class Peared {
         
         this.isHost = false;
         this.localPlayer = null;
-        this.peers = new Map(); // peerId -> { connection, dataChannel, player }
+        this.peers = new Map(); // peerId -> { connection, dataChannel, unreliableChannel, player }
         this.pendingConnections = new Map(); // peerId -> { connection, offer }
         this.allPlayers = new Map(); // playerId -> player (all known players including self)
         this.state = 'disconnected'; // disconnected, hosting, connecting, connected
+
+        // Built-in interpolator for position smoothing
+        this.interpolator = new Interpolator({ delay: this.options.interpolationDelay });
+
+        // Voice chat state
+        this.localStream = null;       // Local microphone stream
+        this.voiceEnabled = false;     // Is voice chat active
+        this.muted = false;            // Is local mic muted
+        this.remoteAudios = new Map(); // peerId -> HTMLAudioElement
 
         // Firebase signaling
         this.firebase = new FirebaseSignaling();
@@ -1165,10 +1384,26 @@ class Peared {
 
         const connection = new RTCPeerConnection({ iceServers: this.options.iceServers });
 
-        // Handle incoming data channel
+        // Handle incoming audio tracks (voice chat)
+        connection.ontrack = (event) => {
+            this._handleRemoteTrack(event, offerData.hostId);
+        };
+
+        // Add local audio if voice chat is enabled
+        if (this.voiceEnabled && this.localStream) {
+            this._addAudioToPeer(connection, offerData.hostId);
+        }
+
+        // Handle incoming data channels (reliable and unreliable)
         connection.ondatachannel = (event) => {
-            this._log('info', 'Data channel received from host');
-            this._setupDataChannel(event.channel, offerData.hostId);
+            const channel = event.channel;
+            if (channel.label === 'peared') {
+                this._log('info', 'Reliable data channel received from host');
+                this._setupDataChannel(channel, offerData.hostId);
+            } else if (channel.label === 'peared-fast') {
+                this._log('info', 'Unreliable data channel received from host');
+                this._setupUnreliableChannel(channel, offerData.hostId);
+            }
         };
 
         // ICE candidate gathering
@@ -1196,6 +1431,7 @@ class Peared {
         this.peers.set(offerData.hostId, {
             connection,
             dataChannel: null,
+            unreliableChannel: null,
             player: { id: offerData.hostId, name: offerData.hostName, isHost: true }
         });
 
@@ -1460,15 +1696,72 @@ class Peared {
             peer.dataChannel.send(message);
         }
     }
-    
+
+    /**
+     * Send data via unreliable channel (for high-frequency updates like position)
+     * Packets may be dropped or arrive out of order - use for non-critical, frequent data
+     */
+    sendUnreliable(type, data) {
+        const message = JSON.stringify({ type, data, from: this.localPlayer?.id });
+
+        if (this.isHost) {
+            // Host broadcasts to all clients via unreliable channel
+            this.peers.forEach(peer => {
+                if (peer.unreliableChannel?.readyState === 'open') {
+                    peer.unreliableChannel.send(message);
+                }
+            });
+        } else {
+            // Client sends to host via unreliable channel
+            const hostPeer = this.peers.values().next().value;
+            if (hostPeer?.unreliableChannel?.readyState === 'open') {
+                hostPeer.unreliableChannel.send(message);
+            }
+        }
+    }
+
+    /**
+     * Broadcast via unreliable channel (host only)
+     */
+    broadcastUnreliable(type, data, excludeId = null, originalFrom = null) {
+        if (!this.isHost) return;
+
+        const senderId = originalFrom || this.localPlayer?.id;
+        const message = JSON.stringify({ type, data, from: senderId });
+
+        this.peers.forEach((peer, peerId) => {
+            if (peerId !== excludeId && peer.unreliableChannel?.readyState === 'open') {
+                peer.unreliableChannel.send(message);
+            }
+        });
+    }
+
+    /**
+     * Get interpolated position for a remote player
+     * Use this in your render loop for smooth remote player movement
+     */
+    getInterpolatedState(playerId) {
+        return this.interpolator.getState(playerId);
+    }
+
+    /**
+     * Push a state update for interpolation (called automatically by unreliable handler)
+     * Or call manually if you want custom interpolation handling
+     */
+    pushStateForInterpolation(playerId, state) {
+        this.interpolator.pushState(playerId, state);
+    }
+
     close() {
         this.peers.forEach(peer => {
             peer.dataChannel?.close();
+            peer.unreliableChannel?.close();
             peer.connection?.close();
         });
         this.peers.clear();
         this.pendingConnections.clear();
         this.allPlayers.clear();
+        this.interpolator.clear();
         this.state = 'disconnected';
         this.isHost = false;
         this.localPlayer = null;
@@ -1476,6 +1769,9 @@ class Peared {
 
         // Stop heartbeat
         this._stopHeartbeat();
+
+        // Disable voice chat
+        this.disableVoice();
 
         // Clean up Firebase
         this.firebase.destroy();
@@ -1492,19 +1788,248 @@ class Peared {
         document.getElementById('peared-overlay').classList.remove('active');
         this._stopCamera();
     }
-    
+
+    // ===== VOICE CHAT API =====
+
+    /**
+     * Enable voice chat - requests microphone access and adds audio to all connections
+     * @returns {Promise<boolean>} true if successful
+     */
+    async enableVoice() {
+        if (this.voiceEnabled) return true;
+
+        try {
+            this._log('info', 'Requesting microphone access...');
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                },
+                video: false
+            });
+
+            this.voiceEnabled = true;
+            this._log('success', 'Microphone enabled');
+
+            // Add audio track to all existing peer connections
+            this.peers.forEach((peer, peerId) => {
+                this._addAudioToPeer(peer.connection, peerId);
+            });
+
+            this._updateVoiceUI();
+            return true;
+        } catch (error) {
+            this._log('error', 'Failed to access microphone', error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Disable voice chat - stops microphone and removes audio from connections
+     */
+    disableVoice() {
+        if (!this.voiceEnabled) return;
+
+        // Stop local stream
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(track => track.stop());
+            this.localStream = null;
+        }
+
+        // Stop all remote audio
+        this.remoteAudios.forEach(audio => {
+            audio.srcObject = null;
+            audio.remove();
+        });
+        this.remoteAudios.clear();
+
+        this.voiceEnabled = false;
+        this._log('info', 'Voice chat disabled');
+        this._updateVoiceUI();
+    }
+
+    /**
+     * Mute local microphone (still transmitting silence)
+     */
+    mute() {
+        if (!this.localStream) return;
+        this.localStream.getAudioTracks().forEach(track => {
+            track.enabled = false;
+        });
+        this.muted = true;
+        this._log('info', 'Microphone muted');
+        this._updateVoiceUI();
+    }
+
+    /**
+     * Unmute local microphone
+     */
+    unmute() {
+        if (!this.localStream) return;
+        this.localStream.getAudioTracks().forEach(track => {
+            track.enabled = true;
+        });
+        this.muted = false;
+        this._log('info', 'Microphone unmuted');
+        this._updateVoiceUI();
+    }
+
+    /**
+     * Toggle mute state
+     * @returns {boolean} new muted state
+     */
+    toggleMute() {
+        if (this.muted) {
+            this.unmute();
+        } else {
+            this.mute();
+        }
+        return this.muted;
+    }
+
+    /**
+     * Set volume for a specific remote player (0.0 to 1.0)
+     */
+    setPlayerVolume(playerId, volume) {
+        // Find the peer by player ID
+        for (const [peerId, peer] of this.peers) {
+            if (peer.player?.id === playerId) {
+                const audio = this.remoteAudios.get(peerId);
+                if (audio) {
+                    audio.volume = Math.max(0, Math.min(1, volume));
+                }
+                break;
+            }
+        }
+    }
+
+    /**
+     * Check if voice chat is currently enabled
+     */
+    isVoiceEnabled() {
+        return this.voiceEnabled;
+    }
+
+    /**
+     * Check if local mic is muted
+     */
+    isMuted() {
+        return this.muted;
+    }
+
+    // ===== PRIVATE: VOICE CHAT HELPERS =====
+
+    _addAudioToPeer(connection, peerId) {
+        if (!this.localStream) return;
+
+        // Add local audio track to the connection
+        this.localStream.getAudioTracks().forEach(track => {
+            connection.addTrack(track, this.localStream);
+        });
+
+        this._log('info', `Added audio track to peer`, { peerId });
+    }
+
+    _handleRemoteTrack(event, peerId) {
+        if (event.track.kind !== 'audio') return;
+
+        this._log('info', `Received audio track from peer`, { peerId });
+
+        // Create audio element for this peer if not exists
+        let audio = this.remoteAudios.get(peerId);
+        if (!audio) {
+            audio = document.createElement('audio');
+            audio.autoplay = true;
+            audio.playsInline = true;
+            // Hidden but needs to be in DOM for some browsers
+            audio.style.display = 'none';
+            document.body.appendChild(audio);
+            this.remoteAudios.set(peerId, audio);
+        }
+
+        // Set the stream
+        if (event.streams && event.streams[0]) {
+            audio.srcObject = event.streams[0];
+        } else {
+            // Fallback: create stream from track
+            const stream = new MediaStream([event.track]);
+            audio.srcObject = stream;
+        }
+
+        // Try to play (may be blocked by autoplay policy)
+        audio.play().catch(err => {
+            this._log('warning', 'Audio autoplay blocked - click anywhere to enable', err.message);
+
+            // Add one-time click handler to resume audio
+            const resumeAudio = () => {
+                audio.play().catch(() => {});
+                document.removeEventListener('click', resumeAudio);
+            };
+            document.addEventListener('click', resumeAudio);
+        });
+
+        // Handle track ending
+        event.track.onended = () => {
+            this._log('info', `Audio track ended from peer`, { peerId });
+        };
+    }
+
+    _cleanupPeerAudio(peerId) {
+        const audio = this.remoteAudios.get(peerId);
+        if (audio) {
+            audio.srcObject = null;
+            audio.remove();
+            this.remoteAudios.delete(peerId);
+        }
+    }
+
+    _updateVoiceUI() {
+        const btn = document.getElementById('peared-voice-btn');
+        if (btn) {
+            if (!this.voiceEnabled) {
+                btn.textContent = '🎤 Enable Voice';
+                btn.className = 'peared-voice-btn';
+            } else if (this.muted) {
+                btn.textContent = '🔇 Muted';
+                btn.className = 'peared-voice-btn muted';
+            } else {
+                btn.textContent = '🎤 Voice On';
+                btn.className = 'peared-voice-btn active';
+            }
+        }
+    }
+
     // ===== PRIVATE: CONNECTION MANAGEMENT =====
     
     async _createHostOffer() {
         const peerId = this._generateId();
         this._log('info', `Creating offer for new peer`, { peerId });
-        
+
         const connection = new RTCPeerConnection({ iceServers: this.options.iceServers });
-        
+
+        // Handle incoming audio tracks (voice chat)
+        connection.ontrack = (event) => {
+            this._handleRemoteTrack(event, peerId);
+        };
+
+        // Add local audio if voice chat is enabled
+        if (this.voiceEnabled && this.localStream) {
+            this._addAudioToPeer(connection, peerId);
+        }
+
+        // Create reliable channel (for game events, chat, state sync)
         const dataChannel = connection.createDataChannel('peared');
         this._setupDataChannel(dataChannel, peerId);
-        
-        this.pendingConnections.set(peerId, { connection, dataChannel });
+
+        // Create unreliable channel (for high-frequency position updates)
+        const unreliableChannel = connection.createDataChannel('peared-fast', {
+            ordered: false,
+            maxRetransmits: 0
+        });
+        this._setupUnreliableChannel(unreliableChannel, peerId);
+
+        this.pendingConnections.set(peerId, { connection, dataChannel, unreliableChannel });
         
         // ICE candidate gathering
         const candidates = [];
@@ -1568,9 +2093,9 @@ class Peared {
     
     async _createClientAnswer(offerData) {
         this._log('info', `Connecting to host "${offerData.hostName}"`);
-        
+
         const connection = new RTCPeerConnection({ iceServers: this.options.iceServers });
-        
+
         this.localPlayer = {
             id: this._generateId(),
             name: document.getElementById('peared-player-name').value || 'Player',
@@ -1579,13 +2104,29 @@ class Peared {
         };
         this.allPlayers.set(this.localPlayer.id, this.localPlayer);
         this._log('info', `Local player created: "${this.localPlayer.name}"`);
-        
-        // Handle incoming data channel
-        connection.ondatachannel = (event) => {
-            this._log('info', 'Data channel received from host');
-            this._setupDataChannel(event.channel, offerData.hostId);
+
+        // Handle incoming audio tracks (voice chat)
+        connection.ontrack = (event) => {
+            this._handleRemoteTrack(event, offerData.hostId);
         };
-        
+
+        // Add local audio if voice chat is enabled
+        if (this.voiceEnabled && this.localStream) {
+            this._addAudioToPeer(connection, offerData.hostId);
+        }
+
+        // Handle incoming data channels (reliable and unreliable)
+        connection.ondatachannel = (event) => {
+            const channel = event.channel;
+            if (channel.label === 'peared') {
+                this._log('info', 'Reliable data channel received from host');
+                this._setupDataChannel(channel, offerData.hostId);
+            } else if (channel.label === 'peared-fast') {
+                this._log('info', 'Unreliable data channel received from host');
+                this._setupUnreliableChannel(channel, offerData.hostId);
+            }
+        };
+
         // ICE candidate gathering
         const candidates = [];
         connection.onicecandidate = (e) => {
@@ -1594,7 +2135,7 @@ class Peared {
                 this._log('info', `ICE candidate gathered`, { type: e.candidate.type || 'unknown' });
             }
         };
-        
+
         // Connection state
         connection.onconnectionstatechange = () => {
             this._log('info', `Connection state: ${connection.connectionState}`);
@@ -1608,10 +2149,11 @@ class Peared {
                 this.options.onPlayerLeave({ id: offerData.hostId });
             }
         };
-        
-        this.peers.set(offerData.hostId, { 
-            connection, 
+
+        this.peers.set(offerData.hostId, {
+            connection,
             dataChannel: null,
+            unreliableChannel: null,
             player: { id: offerData.hostId, name: offerData.hostName, isHost: true }
         });
         
@@ -1709,6 +2251,8 @@ class Peared {
                     this._updateConnectedPlayersList();
                 }
             }
+            // Clean up voice chat for this peer
+            this._cleanupPeerAudio(peerId);
             this.peers.delete(peerId);
         };
         
@@ -1716,7 +2260,54 @@ class Peared {
             this._log('error', 'Data channel error', error);
         };
     }
-    
+
+    _setupUnreliableChannel(channel, peerId) {
+        channel.onopen = () => {
+            this._log('success', `Unreliable channel OPEN with peer`, { peerId });
+
+            const peer = this.peers.get(peerId) || this.pendingConnections.get(peerId);
+            if (peer) {
+                peer.unreliableChannel = channel;
+            }
+        };
+
+        channel.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+
+                // If a dedicated unreliable handler exists, use it
+                if (this.options.onUnreliableMessage) {
+                    this.options.onUnreliableMessage(message.from, message.type, message.data);
+                } else {
+                    // Fall back to regular handler
+                    this._handleUnreliableMessage(peerId, message);
+                }
+            } catch (e) {
+                // Silently ignore parse errors on unreliable channel (expected with packet loss)
+            }
+        };
+
+        channel.onclose = () => {
+            this._log('info', `Unreliable channel closed`, { peerId });
+        };
+
+        channel.onerror = () => {
+            // Errors are expected on unreliable channels, ignore silently
+        };
+    }
+
+    _handleUnreliableMessage(fromPeerId, message) {
+        const { type, data, from } = message;
+
+        // Host relays unreliable messages to other clients
+        if (this.isHost) {
+            this.broadcastUnreliable(type, data, fromPeerId, from);
+        }
+
+        // Forward to game via regular message handler
+        this.options.onMessage(from, type, data);
+    }
+
     _handleMessage(fromPeerId, message) {
         const { type, data, from } = message;
         console.log('[Peared] _handleMessage - fromPeerId:', fromPeerId, 'type:', type, 'from (in msg):', from);
@@ -2311,47 +2902,64 @@ class BlockWorld {
         // Draw players
         this.players.forEach((player, id) => {
             const isLocal = id === this.localPlayerId;
-            
+
+            // For remote players, use interpolated position if available
+            let renderX = player.x;
+            let renderY = player.y;
+
+            if (!isLocal && this._interpolator) {
+                const interpolated = this._interpolator.getState(id);
+                if (interpolated) {
+                    renderX = interpolated.x;
+                    renderY = interpolated.y;
+                }
+            }
+
             // Shadow
             ctx.fillStyle = 'rgba(0,0,0,0.3)';
             ctx.fillRect(
-                player.x - this.playerSize/2 + 4,
-                player.y - this.playerSize/2 + 4,
+                renderX - this.playerSize/2 + 4,
+                renderY - this.playerSize/2 + 4,
                 this.playerSize,
                 this.playerSize
             );
-            
+
             // Player cube
             ctx.fillStyle = player.color;
             ctx.fillRect(
-                player.x - this.playerSize/2,
-                player.y - this.playerSize/2,
+                renderX - this.playerSize/2,
+                renderY - this.playerSize/2,
                 this.playerSize,
                 this.playerSize
             );
-            
+
             // Highlight for local player
             if (isLocal) {
                 ctx.strokeStyle = '#fff';
                 ctx.lineWidth = 3;
                 ctx.strokeRect(
-                    player.x - this.playerSize/2,
-                    player.y - this.playerSize/2,
+                    renderX - this.playerSize/2,
+                    renderY - this.playerSize/2,
                     this.playerSize,
                     this.playerSize
                 );
             }
-            
+
             // Name tag
             ctx.fillStyle = '#fff';
             ctx.font = 'bold 14px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText(
                 player.name + (player.isHost ? ' 👑' : ''),
-                player.x,
-                player.y - this.playerSize/2 - 10
+                renderX,
+                renderY - this.playerSize/2 - 10
             );
         });
+    }
+
+    // Set interpolator reference for smooth remote player rendering
+    setInterpolator(interpolator) {
+        this._interpolator = interpolator;
     }
 }
 
@@ -2362,8 +2970,10 @@ class BlockWorld {
 // Initialize game
 const game = new BlockWorld('game-canvas');
 
-// Initialize Peared networking
+// Initialize Peared networking (interpolator will be connected after)
 const peared = new Peared({
+    interpolationDelay: 100, // 100ms interpolation buffer
+
     onPlayerJoin: (player) => {
         console.log('Player joined:', player);
         game.addPlayer(player);
@@ -2373,13 +2983,21 @@ const peared = new Peared({
     onPlayerLeave: (player) => {
         console.log('Player left:', player);
         game.removePlayer(player.id);
+        peared.interpolator.removePlayer(player.id); // Clean up interpolation buffer
         updatePlayerList();
     },
 
+    // Reliable messages (game events, chat, etc.)
     onMessage: (from, type, data) => {
-        console.log('[Peared] onMessage - from:', from, 'type:', type);
-        if (type === 'move') {
-            game.updatePlayer(from, data);
+        console.log('[Peared] onMessage (reliable) - from:', from, 'type:', type);
+        // Handle any reliable game messages here
+    },
+
+    // Unreliable messages (high-frequency position updates)
+    onUnreliableMessage: (from, type, data) => {
+        if (type === 'pos') {
+            // Push to interpolation buffer instead of directly updating
+            peared.pushStateForInterpolation(from, data);
         }
     },
 
@@ -2406,14 +3024,26 @@ const peared = new Peared({
     }
 });
 
-// Send position updates
+// Connect game to peared's interpolator for smooth remote player rendering
+game.setInterpolator(peared.interpolator);
+
+// Send position updates via UNRELIABLE channel (high frequency, drops OK)
 let lastSentPosition = { x: 0, y: 0 };
+let lastSendTime = 0;
+const SEND_RATE = 50; // Send at most every 50ms (20 updates/sec)
+
 game.onMove((position) => {
-    // Throttle updates
-    if (Math.abs(position.x - lastSentPosition.x) > 2 || 
-        Math.abs(position.y - lastSentPosition.y) > 2) {
-        peared.send('move', position);
+    const now = Date.now();
+
+    // Throttle by time AND distance
+    if (now - lastSendTime >= SEND_RATE &&
+        (Math.abs(position.x - lastSentPosition.x) > 1 ||
+         Math.abs(position.y - lastSentPosition.y) > 1)) {
+
+        // Use unreliable channel for position updates
+        peared.sendUnreliable('pos', position);
         lastSentPosition = { ...position };
+        lastSendTime = now;
     }
 });
 
@@ -2434,28 +3064,49 @@ function updatePlayerList() {
 function updateConnectionUI(state, isHost) {
     const btn = document.getElementById('connect-btn');
     const status = document.getElementById('connection-status');
-    
+    const voiceControls = document.getElementById('voice-controls');
+
     if (state === 'hosting') {
         btn.textContent = '🎮 Hosting...';
         btn.className = 'hosting';
         status.textContent = `Hosting as ${peared.localPlayer?.name}`;
+        voiceControls.style.display = 'flex';
     } else if (state === 'connected') {
         btn.textContent = '✓ Connected';
         btn.className = 'connected';
         status.textContent = `Connected to game`;
+        voiceControls.style.display = 'flex';
         peared.hidePopup();
     } else {
         btn.textContent = '🎮 Host or Join';
         btn.className = '';
         status.textContent = 'Not connected';
+        voiceControls.style.display = 'none';
     }
-    
+
     updatePlayerList();
 }
 
 // Connect button
 document.getElementById('connect-btn').addEventListener('click', () => {
     peared.showPopup();
+});
+
+// Voice chat button
+document.getElementById('peared-voice-btn').addEventListener('click', async () => {
+    if (!peared.isVoiceEnabled()) {
+        // Enable voice
+        const success = await peared.enableVoice();
+        if (!success) {
+            alert('Could not access microphone. Please check permissions.');
+        }
+    } else if (peared.isMuted()) {
+        // Unmute
+        peared.unmute();
+    } else {
+        // Mute
+        peared.mute();
+    }
 });
 
 // Initialize local player visually when hosting starts
