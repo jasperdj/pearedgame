@@ -506,7 +506,7 @@ class BlockShooter {
 
     respawnPlayer(playerId) {
         const player = this.players.get(playerId);
-        if (!player) return;
+        if (!player) return null;
 
         player.isDead = false;
         player.health = this.maxHealth;
@@ -520,6 +520,8 @@ class BlockShooter {
                 this._onRespawn({ x: player.x, y: player.y, health: player.health });
             }
         }
+
+        return { x: player.x, y: player.y, health: player.health };
     }
 
     // ===== GAME LOOP =====
@@ -633,6 +635,18 @@ class BlockShooter {
         }
 
         toRemove.forEach(id => this.projectiles.delete(id));
+
+        // Host-driven respawn handling
+        if (peared?.isHost) {
+            for (const [playerId, player] of this.players) {
+                if (player.isDead && player.respawnTime && now >= player.respawnTime) {
+                    const state = this.respawnPlayer(playerId);
+                    if (state) {
+                        peared.send('respawn', { playerId, ...state });
+                    }
+                }
+            }
+        }
     }
 
     _tryShoot() {
@@ -911,7 +925,8 @@ const peared = new Peared({
             updatePlayerList();
         } else if (type === 'respawn') {
             // Someone respawned
-            game.updatePlayer(from, {
+            const targetId = data.playerId || from;
+            game.updatePlayer(targetId, {
                 x: data.x,
                 y: data.y,
                 health: data.health,
