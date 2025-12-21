@@ -577,7 +577,7 @@ class BlockShooter {
 
         // Update projectiles
         const toRemove = [];
-        const frameSteps = Math.max(1, Math.round(dt * 60)); // catch-up if tab was throttled
+        const frameSteps = Math.min(5, Math.max(1, Math.round(dt * 60))); // cap catch-up when resuming from throttling
         for (const [id, proj] of this.projectiles) {
             // Move projectile
             proj.x += proj.vx * frameSteps;
