@@ -577,10 +577,11 @@ class BlockShooter {
 
         // Update projectiles
         const toRemove = [];
+        const frameSteps = Math.max(1, Math.round(dt * 60)); // catch-up if tab was throttled
         for (const [id, proj] of this.projectiles) {
             // Move projectile
-            proj.x += proj.vx;
-            proj.y += proj.vy;
+            proj.x += proj.vx * frameSteps;
+            proj.y += proj.vy * frameSteps;
 
             // Check bounds
             if (proj.x < 0 || proj.x > this.canvas.width ||
