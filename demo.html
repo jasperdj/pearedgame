@@ -838,12 +838,18 @@ const peared = new Peared({
 
     onPlayerJoin: (player) => {
         console.log('Player joined:', player.name);
-        game.addPlayer(player);
-        updatePlayerList();
+
+        ensureLocalPlayer();
 
         if (player.id === peared.localPlayer?.id) {
-            game.setLocalPlayer(player);
+            if (!game.players.has(player.id)) {
+                game.setLocalPlayer(player);
+            }
+        } else {
+            game.addPlayer(player);
         }
+
+        updatePlayerList();
     },
 
     onPlayerLeave: (player) => {
@@ -889,6 +895,7 @@ const peared = new Peared({
     },
 
     onStateChange: (state, isHost) => {
+        ensureLocalPlayer();
         updateConnectionUI(state, isHost);
     },
 
@@ -906,6 +913,7 @@ const peared = new Peared({
     getState: () => game.getState(),
 
     onStateSync: (state) => {
+        ensureLocalPlayer();
         game.applyState(state);
         updatePlayerList();
     }
@@ -979,6 +987,7 @@ setInterval(() => {
 function updatePlayerList() {
     const container = document.getElementById('players');
     const players = peared.getPlayers();
+    const hostId = getHostId(players);
 
     // Sort by kills
     const sortedPlayers = players.map(p => ({
@@ -994,10 +1003,31 @@ function updatePlayerList() {
                 <span class="player-stats">
                     <span class="kills">${p.stats.kills}</span>/<span class="deaths">${p.stats.deaths}</span>
                 </span>
-                ${p.isHost ? '<span class="player-host">HOST</span>' : ''}
+                ${p.id === hostId ? '<span class="player-host">HOST</span>' : ''}
             </div>
         `;
     }).join('');
+}
+
+function ensureLocalPlayer() {
+    const localPlayer = peared.localPlayer;
+    if (!localPlayer) return;
+
+    if (!game.players.has(localPlayer.id)) {
+        game.setLocalPlayer(localPlayer);
+    }
+}
+
+function getHostId(players) {
+    const explicitHost = players.find(p => p.isHost);
+    if (explicitHost) return explicitHost.id;
+
+    if (peared.isHost && peared.localPlayer?.id) return peared.localPlayer.id;
+
+    const peerHost = peared.peers?.values?.().next()?.value?.player;
+    if (peerHost?.id) return peerHost.id;
+
+    return players[0]?.id || null;
 }
 
 function addKillFeed(killerName, victimName, killerColor) {
