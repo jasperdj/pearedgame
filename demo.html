@@ -395,7 +395,8 @@ class BlockShooter {
             vx: Math.cos(angle) * this.projectileSpeed,
             vy: Math.sin(angle) * this.projectileSpeed,
             color: this.players.get(this.localPlayerId)?.color || '#fff',
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            lastUpdate: Date.now()
         };
 
         this.projectiles.set(id, projectile);
@@ -417,17 +418,18 @@ class BlockShooter {
         // Drop very stale projectiles (e.g., tab was throttled and message arrived late)
         if (elapsed > 5000) return;
 
-        // Fast-forward projectile to current time based on elapsed frames (~60fps)
-        const steps = Math.floor(elapsed / 16); // approx frames elapsed
-        const advancedX = data.x + (data.vx || 0) * steps;
-        const advancedY = data.y + (data.vy || 0) * steps;
+        // Fast-forward projectile to current time using elapsed time since creation
+        const stepFactor = elapsed / (1000 / 60); // 60fps baseline
+        const advancedX = data.x + (data.vx || 0) * stepFactor;
+        const advancedY = data.y + (data.vy || 0) * stepFactor;
 
         if (!this.projectiles.has(data.id)) {
             this.projectiles.set(data.id, {
                 ...data,
                 x: advancedX,
                 y: advancedY,
-                createdAt
+                createdAt,
+                lastUpdate: now
             });
         }
     }
@@ -577,11 +579,14 @@ class BlockShooter {
 
         // Update projectiles
         const toRemove = [];
-        const frameSteps = Math.min(5, Math.max(1, Math.round(dt * 60))); // cap catch-up when resuming from throttling
         for (const [id, proj] of this.projectiles) {
+            const elapsed = now - (proj.lastUpdate || now);
+            const stepFactor = Math.max(1, elapsed / (1000 / 60)); // move based on real time elapsed
+
             // Move projectile
-            proj.x += proj.vx * frameSteps;
-            proj.y += proj.vy * frameSteps;
+            proj.x += proj.vx * stepFactor;
+            proj.y += proj.vy * stepFactor;
+            proj.lastUpdate = now;
 
             // Check bounds
             if (proj.x < 0 || proj.x > this.canvas.width ||
