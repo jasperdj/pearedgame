@@ -372,6 +372,7 @@ class BlockShooter {
             if (data.y !== undefined) player.y = data.y;
             if (data.health !== undefined) player.health = data.health;
             if (data.isDead !== undefined) player.isDead = data.isDead;
+            if (data.respawnTime !== undefined) player.respawnTime = data.respawnTime;
         }
     }
 
@@ -434,23 +435,14 @@ class BlockShooter {
         // Remove the projectile
         this.projectiles.delete(projectileId);
 
-        // Apply damage locally for immediate feedback
-        target.health -= this.damage;
-
-        // Notify about the hit
+        // Notify about the hit (host will apply damage)
         if (this._onHit) {
             this._onHit({
                 projectileId,
                 targetId: targetPlayerId,
                 shooterId: projectile.ownerId,
-                damage: this.damage,
-                newHealth: target.health
+                damage: this.damage
             });
-        }
-
-        // Check for kill
-        if (target.health <= 0) {
-            this._handleKill(projectile.ownerId, targetPlayerId);
         }
     }
 
@@ -872,16 +864,30 @@ const peared = new Peared({
 
     onMessage: (from, type, data) => {
         if (type === 'hit') {
-            // Someone got hit - remove projectile and apply damage
-            game.removeProjectile(data.projectileId);
-            if (data.targetId !== peared.localPlayer?.id) {
-                // Apply damage to non-local players
-                game.applyDamage(data.targetId, data.damage, data.shooterId);
+            // Only the host applies damage
+            if (peared.isHost) {
+                processHostHit(data);
+            }
+        } else if (type === 'damage') {
+            game.updatePlayer(data.targetId, {
+                health: data.health,
+                isDead: data.isDead,
+                respawnTime: data.respawnTime
+            });
+
+            if (data.targetId === peared.localPlayer?.id) {
+                game._updateHealthUI();
             }
             updatePlayerList();
         } else if (type === 'kill') {
             // Kill event
             addKillFeed(data.killerName, data.victimName, data.killerColor);
+            if (data.killerStats) {
+                game.stats.set(data.killerId, data.killerStats);
+            }
+            if (data.victimStats) {
+                game.stats.set(data.victimId, data.victimStats);
+            }
             updatePlayerList();
         } else if (type === 'respawn') {
             // Someone respawned
@@ -921,6 +927,23 @@ const peared = new Peared({
 
 game.setInterpolator(peared.interpolator);
 
+function processHostHit(hitData) {
+    const target = game.players.get(hitData.targetId);
+    const shooter = game.players.get(hitData.shooterId);
+    if (!target || !shooter || target.isDead) return;
+
+    game.removeProjectile(hitData.projectileId);
+    game.applyDamage(target.id, game.damage, shooter.id);
+
+    const updatedTarget = game.players.get(target.id);
+    peared.send('damage', {
+        targetId: target.id,
+        health: Math.max(0, updatedTarget.health),
+        isDead: updatedTarget.isDead,
+        respawnTime: updatedTarget.respawnTime
+    });
+}
+
 // ===== GAME EVENT HANDLERS =====
 
 // Position updates (throttled)
@@ -944,7 +967,11 @@ game.onShoot((projectile) => {
 
 // Hit detection - send reliably
 game.onHit((hitData) => {
-    peared.send('hit', hitData);
+    if (peared.isHost) {
+        processHostHit(hitData);
+    } else {
+        peared.send('hit', hitData);
+    }
 });
 
 // Kill event - send reliably
@@ -952,13 +979,17 @@ game.onKill((killerId, victimId) => {
     const killer = game.players.get(killerId);
     const victim = game.players.get(victimId);
 
-    peared.send('kill', {
-        killerId,
-        victimId,
-        killerName: killer?.name || 'Unknown',
-        victimName: victim?.name || 'Unknown',
-        killerColor: killer?.color || '#fff'
-    });
+    if (peared.isHost) {
+        peared.send('kill', {
+            killerId,
+            victimId,
+            killerName: killer?.name || 'Unknown',
+            victimName: victim?.name || 'Unknown',
+            killerColor: killer?.color || '#fff',
+            killerStats: game.getStats(killerId),
+            victimStats: game.getStats(victimId)
+        });
+    }
 
     addKillFeed(killer?.name, victim?.name, killer?.color);
     updatePlayerList();
