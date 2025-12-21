@@ -1,0 +1,3825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Block World - Peared Demo</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database-compat.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e; 
+            color: #eee;
+            overflow: hidden;
+        }
+        
+        /* Game Canvas */
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        #game-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        
+        /* Game UI Overlay */
+        #game-ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 100;
+        }
+        #player-list {
+            background: rgba(0,0,0,0.7);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            min-width: 150px;
+        }
+        #player-list h3 {
+            margin-bottom: 8px;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #888;
+        }
+        .player-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        .player-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            margin-right: 8px;
+        }
+        .player-name {
+            flex: 1;
+        }
+        .player-host {
+            font-size: 10px;
+            background: #4CAF50;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-left: 5px;
+        }
+        
+        /* Connection Button */
+        #connect-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            z-index: 100;
+        }
+        #connect-btn:hover { background: #45a049; }
+        #connect-btn.hosting { background: #2196F3; }
+        #connect-btn.connected { background: #666; }
+        
+        /* Connection Status */
+        #connection-status {
+            position: absolute;
+            top: 60px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 100;
+        }
+        
+        /* Instructions */
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 100;
+        }
+        
+        /*=============================================
+          PEARED POPUP STYLES
+        =============================================*/
+        .peared-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .peared-overlay.active { display: flex; }
+        
+        .peared-popup {
+            background: #2d2d44;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        
+        .peared-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .peared-header h2 {
+            font-size: 20px;
+            color: #fff;
+        }
+        .peared-close {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 32px;
+            cursor: pointer;
+            padding: 8px;
+            line-height: 1;
+            min-width: 44px;
+            min-height: 44px;
+        }
+        .peared-close:hover { color: #fff; }
+
+        .peared-tabs {
+            display: flex;
+            border-bottom: 2px solid #444;
+            margin-bottom: 20px;
+        }
+        .peared-tab {
+            flex: 1;
+            padding: 14px 20px;
+            cursor: pointer;
+            color: #888;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+            text-align: center;
+            font-size: 15px;
+            font-weight: 500;
+        }
+        .peared-tab:hover { color: #ccc; }
+        .peared-tab.active {
+            color: #4CAF50;
+            border-bottom-color: #4CAF50;
+        }
+
+        .peared-content { display: none; }
+        .peared-content.active { display: block; }
+
+        .peared-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 10px;
+            min-height: 48px;
+        }
+        .peared-btn:hover { background: #45a049; }
+        .peared-btn:disabled { background: #555; cursor: not-allowed; }
+        .peared-btn.secondary { background: #555; }
+        .peared-btn.secondary:hover { background: #666; }
+
+        .peared-input {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid #444;
+            border-radius: 8px;
+            background: #1a1a2e;
+            color: #fff;
+            font-size: 16px;
+            margin-bottom: 12px;
+            min-height: 48px;
+        }
+        .peared-input:focus { outline: none; border-color: #4CAF50; }
+        
+        .peared-status {
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        .peared-status.info { background: rgba(33,150,243,0.2); color: #64B5F6; }
+        .peared-status.success { background: rgba(76,175,80,0.2); color: #81C784; }
+        .peared-status.warning { background: rgba(255,193,7,0.2); color: #FFD54F; }
+        .peared-status.error { background: rgba(244,67,54,0.2); color: #E57373; }
+        
+        .peared-qr {
+            text-align: center;
+            margin: 20px 0;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            display: inline-block;
+        }
+        .peared-qr-container {
+            text-align: center;
+        }
+        
+        .peared-video-container {
+            position: relative;
+            width: 100%;
+            max-width: 300px;
+            margin: 0 auto;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .peared-video {
+            width: 100%;
+            display: block;
+        }
+        
+        .peared-manual-input {
+            width: 100%;
+            height: 80px;
+            resize: none;
+        }
+        
+        .peared-divider {
+            text-align: center;
+            margin: 15px 0;
+            color: #666;
+            font-size: 12px;
+        }
+        
+        .peared-player-setup {
+            margin-bottom: 20px;
+        }
+        .peared-player-setup label {
+            display: block;
+            margin-bottom: 5px;
+            color: #888;
+            font-size: 12px;
+        }
+        
+        .peared-pending-list {
+            margin: 15px 0;
+        }
+        .peared-pending-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #1a1a2e;
+            padding: 10px;
+            border-radius: 6px;
+            margin: 5px 0;
+        }
+        .peared-pending-item button {
+            padding: 6px 12px;
+            font-size: 12px;
+            margin-left: 5px;
+        }
+        
+        /* Debug Panel */
+        .peared-debug-panel {
+            display: none;
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            width: 400px;
+            max-height: 300px;
+            background: rgba(0, 0, 0, 0.95);
+            border: 1px solid #444;
+            border-radius: 8px;
+            z-index: 2000;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 11px;
+        }
+        .peared-debug-panel.active { display: block; }
+        
+        .peared-debug-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: #333;
+            border-radius: 8px 8px 0 0;
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .peared-debug-close {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+        .peared-debug-close:hover { color: #fff; }
+        
+        .peared-debug-log {
+            height: 200px;
+            overflow-y: auto;
+            padding: 10px;
+            color: #0f0;
+        }
+        .peared-debug-log .log-entry {
+            margin: 2px 0;
+            padding: 2px 0;
+            border-bottom: 1px solid #222;
+        }
+        .peared-debug-log .log-time { color: #666; }
+        .peared-debug-log .log-info { color: #64B5F6; }
+        .peared-debug-log .log-success { color: #81C784; }
+        .peared-debug-log .log-warning { color: #FFD54F; }
+        .peared-debug-log .log-error { color: #E57373; }
+
+        /* Room Browser Styles */
+        .peared-room-code-input {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .peared-room-code-input input {
+            flex: 3;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            font-size: 22px;
+            text-align: center;
+            font-weight: bold;
+            font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+            padding: 16px 12px;
+            min-height: 56px;
+            min-width: 0;
+        }
+        .peared-room-code-input input::placeholder {
+            letter-spacing: 1px;
+            font-size: 14px;
+            font-weight: normal;
+        }
+        .peared-room-code-input button {
+            flex: 1;
+            padding: 16px 16px;
+            min-width: 70px;
+            max-width: 90px;
+            font-size: 15px;
+        }
+
+        .peared-room-browser {
+            max-height: 250px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+        .peared-room-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #1a1a2e;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin: 8px 0;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .peared-room-item:hover {
+            background: #252540;
+        }
+        .peared-room-info {
+            flex: 1;
+        }
+        .peared-room-host {
+            font-weight: bold;
+            color: #fff;
+            margin-bottom: 3px;
+        }
+        .peared-room-meta {
+            font-size: 12px;
+            color: #888;
+        }
+        .peared-room-players {
+            background: #333;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .peared-room-players.full {
+            background: #c0392b;
+        }
+        .peared-room-join-btn {
+            padding: 8px 16px;
+            font-size: 13px;
+            margin-left: 10px;
+        }
+
+        .peared-no-rooms {
+            text-align: center;
+            color: #888;
+            padding: 40px 20px;
+            font-size: 15px;
+            background: rgba(26, 26, 46, 0.5);
+            border-radius: 8px;
+            border: 1px dashed #444;
+        }
+        .peared-no-rooms .emoji {
+            font-size: 32px;
+            margin-bottom: 12px;
+            display: block;
+        }
+        .peared-no-rooms .subtitle {
+            font-size: 13px;
+            color: #666;
+            margin-top: 8px;
+        }
+
+        .peared-host-options {
+            margin: 15px 0;
+        }
+        .peared-host-options label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #aaa;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .peared-host-options input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+        }
+
+        .peared-room-code-display {
+            background: linear-gradient(135deg, #1a1a2e 0%, #252540 100%);
+            padding: 24px 20px;
+            border-radius: 12px;
+            text-align: center;
+            margin: 20px 0;
+            border: 2px solid #333;
+        }
+        .peared-room-code-display .code {
+            font-size: 42px;
+            font-weight: bold;
+            letter-spacing: 10px;
+            color: #4CAF50;
+            font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+            text-shadow: 0 2px 10px rgba(76, 175, 80, 0.3);
+            padding: 8px 0;
+        }
+        .peared-room-code-display .label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+
+        .peared-divider-text {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+            margin: 15px 0;
+        }
+        .peared-divider-text::before,
+        .peared-divider-text::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid #444;
+        }
+        .peared-divider-text span {
+            padding: 0 10px;
+        }
+
+        .peared-refresh-btn {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            padding: 5px;
+            font-size: 16px;
+        }
+        .peared-refresh-btn:hover {
+            color: #fff;
+        }
+
+        /* World/Save Management */
+        .peared-world-section {
+            background: #1a1a2e;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .peared-world-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        /* Voice Chat Button */
+        #voice-controls {
+            position: absolute;
+            bottom: 60px;
+            right: 10px;
+            z-index: 100;
+            display: flex;
+            gap: 8px;
+        }
+        .peared-voice-btn {
+            background: #555;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .peared-voice-btn:hover {
+            background: #666;
+        }
+        .peared-voice-btn.active {
+            background: #4CAF50;
+        }
+        .peared-voice-btn.active:hover {
+            background: #45a049;
+        }
+        .peared-voice-btn.muted {
+            background: #c0392b;
+        }
+        .peared-voice-btn.muted:hover {
+            background: #e74c3c;
+        }
+
+        /* Voice indicator in player list */
+        .player-voice-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #666;
+            margin-left: 6px;
+        }
+        .player-voice-indicator.speaking {
+            background: #4CAF50;
+            animation: pulse-voice 0.5s ease-in-out infinite alternate;
+        }
+        @keyframes pulse-voice {
+            from { transform: scale(1); opacity: 0.7; }
+            to { transform: scale(1.3); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Game Container -->
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+        
+        <!-- Game UI -->
+        <div id="game-ui">
+            <div id="player-list">
+                <h3>Players</h3>
+                <div id="players"></div>
+            </div>
+        </div>
+        
+        <button id="connect-btn">🎮 Host or Join</button>
+        <div id="connection-status">Not connected</div>
+        <div id="instructions">Arrow keys or WASD to move</div>
+
+        <!-- Voice Chat Controls -->
+        <div id="voice-controls" style="display: none;">
+            <button id="peared-voice-btn" class="peared-voice-btn">🎤 Enable Voice</button>
+        </div>
+    </div>
+    
+    <!-- Peared Connection Popup -->
+    <div id="peared-overlay" class="peared-overlay">
+        <div class="peared-popup">
+            <div class="peared-header">
+                <h2>Multiplayer</h2>
+                <button class="peared-close" id="peared-close">&times;</button>
+            </div>
+            
+            <!-- Player Setup -->
+            <div class="peared-player-setup">
+                <label>Your Name</label>
+                <input type="text" id="peared-player-name" class="peared-input" placeholder="Enter your name" maxlength="20">
+            </div>
+            
+            <!-- Mode Selection Tabs -->
+            <div class="peared-tabs">
+                <div class="peared-tab active" data-tab="host">Host Game</div>
+                <div class="peared-tab" data-tab="join">Join Game</div>
+            </div>
+            
+            <!-- Host Game Content -->
+            <div id="peared-host" class="peared-content active">
+                <p style="color: #888; margin-bottom: 15px;">Start hosting and share your room code with others.</p>
+
+                <!-- World/Save Management -->
+                <div id="peared-world-section" class="peared-world-section" style="display: none;">
+                    <div style="color: #888; font-size: 11px; text-transform: uppercase; margin-bottom: 8px;">
+                        💾 Saved World
+                    </div>
+                    <div id="peared-world-info" class="peared-world-info">
+                        <span id="peared-world-name">No saved world</span>
+                        <span id="peared-world-time" style="color: #666; font-size: 11px;"></span>
+                    </div>
+                    <div class="peared-host-options" style="margin-top: 8px;">
+                        <label>
+                            <input type="checkbox" id="peared-resume-world" checked>
+                            Resume from last save (restore positions)
+                        </label>
+                    </div>
+                </div>
+
+                <div class="peared-host-options">
+                    <label>
+                        <input type="checkbox" id="peared-public-room" checked>
+                        Public room (visible in browser)
+                    </label>
+                </div>
+
+                <button id="peared-start-host" class="peared-btn">🎮 Start Hosting</button>
+
+                <div id="peared-host-active" style="display: none;">
+                    <!-- Room Code Display -->
+                    <div class="peared-room-code-display">
+                        <div class="label">ROOM CODE</div>
+                        <div class="code" id="peared-room-code">------</div>
+                    </div>
+                    <button id="peared-copy-room-code" class="peared-btn secondary">📋 Copy Room Code</button>
+
+                    <div id="peared-connected-players" class="peared-pending-list" style="margin-top: 20px;">
+                        <div style="color: #888; font-size: 12px; text-transform: uppercase; margin-bottom: 10px;">Players</div>
+                        <p id="peared-no-players" style="color: #888; font-size: 14px; text-align: center; padding: 20px;">
+                            Share the room code above<br>
+                            <span style="color: #666; font-size: 12px;">Players will appear here when they join</span>
+                        </p>
+                    </div>
+
+                    <!-- Save Controls -->
+                    <div id="peared-save-controls" style="margin-top: 15px; padding: 12px; background: #1a1a2e; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <span style="color: #888; font-size: 11px;">💾 AUTO-SAVE</span>
+                                <span id="peared-last-save" style="color: #666; font-size: 11px; margin-left: 8px;">Not saved yet</span>
+                            </div>
+                            <button id="peared-save-now" class="peared-btn secondary" style="padding: 6px 12px; font-size: 12px;">Save Now</button>
+                        </div>
+                    </div>
+
+                    <!-- Manual fallback (collapsed by default) -->
+                    <details style="margin-top: 20px;">
+                        <summary style="color: #666; cursor: pointer; font-size: 12px;">Advanced: Manual Code Exchange</summary>
+                        <div style="margin-top: 10px;">
+                            <div class="peared-status info">Share this with players without internet:</div>
+                            <textarea id="peared-host-code" class="peared-input peared-manual-input" readonly style="font-size: 10px;"></textarea>
+                            <button id="peared-copy-code" class="peared-btn secondary" style="font-size: 12px;">📋 Copy Full Code</button>
+
+                            <div class="peared-divider" style="margin-top: 15px;">— Paste Player Response —</div>
+                            <textarea id="peared-answer-input" class="peared-input peared-manual-input" placeholder="Paste response here..." style="font-size: 10px;"></textarea>
+                            <button id="peared-accept-player" class="peared-btn" style="font-size: 12px;">✓ Accept</button>
+                        </div>
+                    </details>
+                </div>
+            </div>
+            
+            <!-- Join Game Content -->
+            <div id="peared-join" class="peared-content">
+                <!-- Room Code Input -->
+                <div class="peared-room-code-input">
+                    <input type="text" id="peared-room-code-input" class="peared-input" placeholder="ROOM CODE" maxlength="6">
+                    <button id="peared-join-room-btn" class="peared-btn">Join</button>
+                </div>
+
+                <!-- Public Rooms Browser -->
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color: #888; font-size: 12px; text-transform: uppercase;">Public Games</span>
+                    <button id="peared-refresh-rooms" class="peared-refresh-btn" title="Refresh">🔄</button>
+                </div>
+                <div id="peared-room-browser" class="peared-room-browser">
+                    <div class="peared-no-rooms">
+                        <span class="emoji">🔍</span>
+                        Searching for games...
+                    </div>
+                </div>
+
+                <!-- Joining Status -->
+                <div id="peared-joining-status" style="display: none; margin-top: 15px;">
+                    <div class="peared-status info">Connecting to room...</div>
+                </div>
+
+                <!-- Manual fallback -->
+                <details style="margin-top: 20px;">
+                    <summary style="color: #666; cursor: pointer; font-size: 12px;">Advanced: Manual Code Exchange</summary>
+                    <div style="margin-top: 10px;">
+                        <div class="peared-tabs" style="border-bottom: 1px solid #444;">
+                            <div class="peared-tab active" data-subtab="paste">Paste Code</div>
+                            <div class="peared-tab" data-subtab="scan">Scan QR</div>
+                        </div>
+
+                        <div id="peared-paste" class="peared-content active" style="margin-top: 15px;">
+                            <textarea id="peared-join-code" class="peared-input peared-manual-input" placeholder="Paste the host's full code here..." style="font-size: 10px;"></textarea>
+                            <button id="peared-connect" class="peared-btn" style="font-size: 12px;">🔗 Connect</button>
+                        </div>
+
+                        <div id="peared-scan" class="peared-content" style="margin-top: 15px;">
+                            <div class="peared-video-container">
+                                <video id="peared-video" class="peared-video" playsinline></video>
+                            </div>
+                            <canvas id="peared-canvas" style="display: none;"></canvas>
+                            <button id="peared-start-camera" class="peared-btn" style="margin-top: 10px; font-size: 12px;">📷 Start Camera</button>
+                            <button id="peared-stop-camera" class="peared-btn secondary" style="display: none; font-size: 12px;">Stop Camera</button>
+                        </div>
+
+                        <div id="peared-join-answer" style="display: none; margin-top: 15px;">
+                            <div class="peared-status warning">Send this response back to the host:</div>
+                            <textarea id="peared-answer-code" class="peared-input peared-manual-input" readonly style="font-size: 10px;"></textarea>
+                            <button id="peared-copy-answer" class="peared-btn secondary" style="font-size: 12px;">📋 Copy Response</button>
+                        </div>
+                    </div>
+                </details>
+            </div>
+            
+            <div id="peared-status" class="peared-status info" style="display: none;"></div>
+        </div>
+    </div>
+    
+    <!-- Peared Debug Log Panel -->
+    <div id="peared-debug-panel" class="peared-debug-panel">
+        <div class="peared-debug-header">
+            <span>🍐 Peared Debug Log</span>
+            <button id="peared-debug-close" class="peared-debug-close">&times;</button>
+        </div>
+        <div id="peared-debug-log" class="peared-debug-log"></div>
+        <button id="peared-debug-clear" class="peared-btn secondary" style="margin: 10px; padding: 6px 12px; font-size: 12px;">Clear Log</button>
+    </div>
+
+<script>
+/*=============================================
+  FIREBASE SIGNALING
+  =============================================
+  Handles room creation, discovery, and WebRTC
+  signaling via Firebase Realtime Database.
+=============================================*/
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAA5a1OAXyFuqtRG6sgtPi7NTQSOQbji18",
+  authDomain: "peared-1e0a5.firebaseapp.com",
+  databaseURL: "https://peared-1e0a5-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "peared-1e0a5",
+  storageBucket: "peared-1e0a5.firebasestorage.app",
+  messagingSenderId: "357774303231",
+  appId: "1:357774303231:web:7f4ab22291ef7498ed91ca"
+};
+
+// Initialize Firebase
+let firebaseApp = null;
+let firebaseDb = null;
+let firebaseConnected = false;
+
+try {
+  firebaseApp = firebase.initializeApp(firebaseConfig);
+  firebaseDb = firebase.database();
+
+  // Monitor connection state
+  firebaseDb.ref('.info/connected').on('value', (snapshot) => {
+    firebaseConnected = snapshot.val() === true;
+    console.log('[Firebase] Connection:', firebaseConnected ? 'online' : 'offline');
+  });
+  console.log('[Firebase] Initialized successfully');
+} catch (error) {
+  console.error('[Firebase] Initialization failed:', error);
+}
+
+class FirebaseSignaling {
+  constructor() {
+    this.db = firebaseDb;
+    this.currentRoom = null;
+    this.roomRef = null;
+    this.listeners = [];
+  }
+
+  // Generate a 6-character room code
+  generateRoomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Removed confusing characters
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }
+
+  // Create a room (host) - legacy method
+  async createRoom(hostName, isPublic = true) {
+    return this.createRoomWithOffer(hostName, isPublic, null);
+  }
+
+  // Create a room with offer already included (prevents race condition)
+  async createRoomWithOffer(hostName, isPublic = true, offer = null) {
+    const roomCode = this.generateRoomCode();
+    const roomData = {
+      host: hostName,
+      public: isPublic,
+      created: firebase.database.ServerValue.TIMESTAMP,
+      players: 1,
+      maxPlayers: 6,
+      offer: offer,  // Include offer immediately so clients can connect
+      answer: null   // Client will write here
+    };
+
+    try {
+      await this.db.ref(`rooms/${roomCode}`).set(roomData);
+      this.currentRoom = roomCode;
+      this.roomRef = this.db.ref(`rooms/${roomCode}`);
+
+      // Set up cleanup on disconnect
+      this.roomRef.onDisconnect().remove();
+
+      console.log(`[Firebase] Room created: ${roomCode}`);
+      return roomCode;
+    } catch (error) {
+      console.error('[Firebase] Failed to create room:', error);
+      throw error;
+    }
+  }
+
+  // Update room with WebRTC offer
+  async setOffer(offer) {
+    if (!this.roomRef) return;
+    await this.roomRef.child('offer').set(offer);
+    console.log('[Firebase] Offer set');
+  }
+
+  // Listen for answers (host)
+  onAnswer(callback) {
+    if (!this.roomRef) return;
+
+    const answerRef = this.roomRef.child('answer');
+    const listener = answerRef.on('value', (snapshot) => {
+      const answer = snapshot.val();
+      if (answer) {
+        console.log('[Firebase] Answer received');
+        callback(answer);
+        // Clear the answer so next client can join
+        answerRef.remove();
+      }
+    });
+
+    this.listeners.push({ ref: answerRef, event: 'value', callback: listener });
+  }
+
+  // Get list of public rooms
+  async getPublicRooms() {
+    try {
+      const snapshot = await this.db.ref('rooms')
+        .orderByChild('public')
+        .equalTo(true)
+        .once('value');
+
+      const rooms = [];
+      snapshot.forEach((child) => {
+        const room = child.val();
+        // Only include rooms less than 10 minutes old
+        const age = Date.now() - room.created;
+        if (age < 10 * 60 * 1000) {
+          rooms.push({
+            code: child.key,
+            ...room
+          });
+        }
+      });
+
+      return rooms;
+    } catch (error) {
+      console.error('[Firebase] Failed to get rooms:', error);
+      return [];
+    }
+  }
+
+  // Join a room (client)
+  async joinRoom(roomCode) {
+    const roomRef = this.db.ref(`rooms/${roomCode.toUpperCase()}`);
+
+    try {
+      const snapshot = await roomRef.once('value');
+      if (!snapshot.exists()) {
+        throw new Error('Room not found');
+      }
+
+      const room = snapshot.val();
+      if (!room.offer) {
+        throw new Error('Room not ready - host is still setting up');
+      }
+
+      this.currentRoom = roomCode.toUpperCase();
+      this.roomRef = roomRef;
+
+      console.log(`[Firebase] Joined room: ${roomCode}`);
+      return room;
+    } catch (error) {
+      console.error('[Firebase] Failed to join room:', error);
+      throw error;
+    }
+  }
+
+  // Submit answer (client)
+  async setAnswer(answer) {
+    if (!this.roomRef) return;
+    await this.roomRef.child('answer').set(answer);
+    console.log('[Firebase] Answer submitted');
+  }
+
+  // Listen for offer updates (client - for reconnection)
+  onOfferUpdate(callback) {
+    if (!this.roomRef) return;
+
+    const offerRef = this.roomRef.child('offer');
+    const listener = offerRef.on('value', (snapshot) => {
+      const offer = snapshot.val();
+      if (offer) {
+        callback(offer);
+      }
+    });
+
+    this.listeners.push({ ref: offerRef, event: 'value', callback: listener });
+  }
+
+  // Update player count
+  async updatePlayerCount(count) {
+    if (!this.roomRef) return;
+    await this.roomRef.child('players').set(count);
+  }
+
+  // Update heartbeat timestamp (for room expiration)
+  async updateHeartbeat() {
+    if (!this.roomRef) return;
+    await this.roomRef.child('lastHeartbeat').set(firebase.database.ServerValue.TIMESTAMP);
+  }
+
+  // Subscribe to room list updates
+  onRoomsUpdate(callback) {
+    const roomsRef = this.db.ref('rooms');
+
+    const listener = roomsRef.on('value', (snapshot) => {
+      const rooms = [];
+      const now = Date.now();
+      snapshot.forEach((child) => {
+        const room = child.val();
+        if (room.public && room.offer) {
+          // Check if room is still active (heartbeat within last 2 minutes, or created within last 2 minutes)
+          const lastActive = room.lastHeartbeat || room.created;
+          const timeSinceActive = now - lastActive;
+          if (timeSinceActive < 2 * 60 * 1000) {
+            rooms.push({
+              code: child.key,
+              ...room
+            });
+          }
+        }
+      });
+      callback(rooms);
+    });
+
+    this.listeners.push({ ref: roomsRef, event: 'value', callback: listener });
+  }
+
+  // Cleanup
+  destroy() {
+    // Remove all listeners
+    this.listeners.forEach(({ ref, event, callback }) => {
+      ref.off(event, callback);
+    });
+    this.listeners = [];
+
+    // Delete room if we're the host
+    if (this.roomRef) {
+      this.roomRef.remove();
+    }
+
+    this.currentRoom = null;
+    this.roomRef = null;
+  }
+}
+
+/*=============================================
+  PEARED PERSISTENCE
+  =============================================
+  Optional IndexedDB-based persistence for:
+  - World saves (game state)
+  - Player identity (name, color, settings)
+
+  Usage:
+    const persistence = new PearedPersistence('my-game');
+
+    // Worlds
+    await persistence.saveWorld('world-1', 'My World', { chunks, entities });
+    const worlds = await persistence.listWorlds();
+    const data = await persistence.loadWorld('world-1');
+
+    // Identity
+    await persistence.saveIdentity({ name, color, pin: '1234' });
+    const identity = await persistence.loadIdentity();
+    const valid = await persistence.verifyPin('1234');
+=============================================*/
+
+class PearedPersistence {
+    constructor(gameId = 'peared-game') {
+        this.gameId = gameId;
+        this.dbName = `peared-${gameId}`;
+        this.db = null;
+        this._initPromise = this._initDB();
+    }
+
+    async _initDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(this.dbName, 1);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                this.db = request.result;
+                resolve(this.db);
+            };
+
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+
+                // Worlds store
+                if (!db.objectStoreNames.contains('worlds')) {
+                    const worldStore = db.createObjectStore('worlds', { keyPath: 'id' });
+                    worldStore.createIndex('name', 'name', { unique: false });
+                    worldStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+                }
+
+                // Identity store (single record)
+                if (!db.objectStoreNames.contains('identity')) {
+                    db.createObjectStore('identity', { keyPath: 'id' });
+                }
+            };
+        });
+    }
+
+    async _ready() {
+        await this._initPromise;
+        return this.db;
+    }
+
+    // ===== WORLD PERSISTENCE =====
+
+    async saveWorld(id, name, data, password = null) {
+        const db = await this._ready();
+
+        const world = {
+            id,
+            name,
+            data,
+            size: JSON.stringify(data).length,
+            createdAt: (await this.loadWorld(id))?.createdAt || Date.now(),
+            updatedAt: Date.now(),
+            passwordHash: password ? await this._hashPassword(password) : null
+        };
+
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('worlds', 'readwrite');
+            const store = tx.objectStore('worlds');
+            const request = store.put(world);
+            request.onsuccess = () => resolve(world);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async loadWorld(id, password = null) {
+        const db = await this._ready();
+
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('worlds', 'readonly');
+            const store = tx.objectStore('worlds');
+            const request = store.get(id);
+
+            request.onsuccess = async () => {
+                const world = request.result;
+                if (!world) {
+                    resolve(null);
+                    return;
+                }
+
+                // Check password if protected
+                if (world.passwordHash) {
+                    if (!password || !(await this._verifyPassword(password, world.passwordHash))) {
+                        reject(new Error('Invalid password'));
+                        return;
+                    }
+                }
+
+                resolve(world);
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async listWorlds() {
+        const db = await this._ready();
+
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('worlds', 'readonly');
+            const store = tx.objectStore('worlds');
+            const request = store.getAll();
+
+            request.onsuccess = () => {
+                const worlds = request.result.map(w => ({
+                    id: w.id,
+                    name: w.name,
+                    size: w.size,
+                    createdAt: w.createdAt,
+                    updatedAt: w.updatedAt,
+                    isProtected: !!w.passwordHash
+                }));
+                // Sort by most recent
+                worlds.sort((a, b) => b.updatedAt - a.updatedAt);
+                resolve(worlds);
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async deleteWorld(id) {
+        const db = await this._ready();
+
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('worlds', 'readwrite');
+            const store = tx.objectStore('worlds');
+            const request = store.delete(id);
+            request.onsuccess = () => resolve(true);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async exportWorld(id, password = null) {
+        const world = await this.loadWorld(id, password);
+        if (!world) return null;
+
+        const exportData = {
+            name: world.name,
+            data: world.data,
+            exportedAt: Date.now(),
+            version: 1
+        };
+
+        // Compress and encode
+        const json = JSON.stringify(exportData);
+        return LZString.compressToEncodedURIComponent(json);
+    }
+
+    async importWorld(exportString, newName = null) {
+        try {
+            const json = LZString.decompressFromEncodedURIComponent(exportString);
+            const exportData = JSON.parse(json);
+
+            const id = 'world-' + Math.random().toString(36).substring(2, 10);
+            return await this.saveWorld(id, newName || exportData.name, exportData.data);
+        } catch (error) {
+            throw new Error('Invalid world data');
+        }
+    }
+
+    // ===== PLAYER IDENTITY =====
+
+    async saveIdentity(identity) {
+        const db = await this._ready();
+
+        const record = {
+            id: 'player',
+            name: identity.name,
+            color: identity.color,
+            settings: identity.settings || {},
+            pinHash: identity.pin ? await this._hashPassword(identity.pin) : null,
+            updatedAt: Date.now()
+        };
+
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('identity', 'readwrite');
+            const store = tx.objectStore('identity');
+            const request = store.put(record);
+            request.onsuccess = () => resolve(record);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async loadIdentity() {
+        const db = await this._ready();
+
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('identity', 'readonly');
+            const store = tx.objectStore('identity');
+            const request = store.get('player');
+
+            request.onsuccess = () => {
+                const identity = request.result;
+                if (identity) {
+                    resolve({
+                        name: identity.name,
+                        color: identity.color,
+                        settings: identity.settings,
+                        hasPin: !!identity.pinHash
+                    });
+                } else {
+                    resolve(null);
+                }
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async verifyPin(pin) {
+        const db = await this._ready();
+
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('identity', 'readonly');
+            const store = tx.objectStore('identity');
+            const request = store.get('player');
+
+            request.onsuccess = async () => {
+                const identity = request.result;
+                if (!identity || !identity.pinHash) {
+                    resolve(true); // No PIN set
+                    return;
+                }
+                resolve(await this._verifyPassword(pin, identity.pinHash));
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async clearIdentity() {
+        const db = await this._ready();
+
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('identity', 'readwrite');
+            const store = tx.objectStore('identity');
+            const request = store.delete('player');
+            request.onsuccess = () => resolve(true);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    // ===== PASSWORD HELPERS =====
+
+    async _hashPassword(password) {
+        // Simple hash using SubtleCrypto (not for high-security, but good enough for local PIN)
+        const encoder = new TextEncoder();
+        const data = encoder.encode(password + this.gameId);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async _verifyPassword(password, hash) {
+        const inputHash = await this._hashPassword(password);
+        return inputHash === hash;
+    }
+}
+
+// Expose globally
+window.PearedPersistence = PearedPersistence;
+
+/*=============================================
+  PEARED LIBRARY - P2P Gaming Framework
+  =============================================
+  A lightweight WebRTC library for peer-to-peer
+  multiplayer games with a host/client model.
+
+  API:
+    const peared = new Peared(options);
+    peared.host(playerName)     - Start hosting
+    peared.join(playerName)     - Open join dialog
+    peared.send(type, data)     - Send RELIABLE to host/all (ordered, guaranteed)
+    peared.sendUnreliable(type, data) - Send UNRELIABLE (fast, may drop)
+    peared.broadcast(type, data) - Reliable broadcast to all clients (host only)
+    peared.broadcastUnreliable(type, data) - Unreliable broadcast (host only)
+    peared.sendTo(peerId, type, data) - Send to specific peer
+    peared.getPlayers()         - Get all connected players
+    peared.isHost               - Check if hosting
+    peared.localPlayer          - Get local player info
+    peared.interpolator         - Built-in Interpolator for smooth rendering
+    peared.getInterpolatedState(playerId) - Get interpolated position
+    peared.pushStateForInterpolation(playerId, state) - Push state to buffer
+    peared.close()              - Close all connections
+    peared.showPopup()          - Show connection popup
+    peared.hidePopup()          - Hide connection popup
+
+  Voice Chat API:
+    peared.enableVoice()        - Request mic access, start voice chat
+    peared.disableVoice()       - Stop voice chat
+    peared.mute() / unmute()    - Mute/unmute local microphone
+    peared.toggleMute()         - Toggle mute state, returns new state
+    peared.isVoiceEnabled()     - Check if voice chat is active
+    peared.isMuted()            - Check if local mic is muted
+    peared.setPlayerVolume(playerId, volume) - Set remote player volume (0-1)
+
+  Persistence API (optional - set gameId to enable):
+    peared.saveIdentity({ name, color, pin }) - Save player identity with optional PIN
+    peared.verifyPin(pin)       - Verify PIN for protected identity
+    peared.listWorlds()         - List saved world slots
+    peared.saveWorld(id, name, data, password) - Save world state
+    peared.loadWorld(id, password) - Load saved world
+    peared.deleteWorld(id)      - Delete a saved world
+    peared.exportWorld(id)      - Export world as shareable string
+    peared.importWorld(string, newName) - Import world from string
+    peared.startAutoSave(getStateFn, worldId, worldName) - Start auto-save interval
+    peared.stopAutoSave()       - Stop auto-save
+
+  Options:
+    onPlayerJoin(player)        - Called when a player joins
+    onPlayerLeave(player)       - Called when a player leaves
+    onMessage(from, type, data) - Called for RELIABLE messages
+    onUnreliableMessage(from, type, data) - Called for UNRELIABLE messages
+    onStateChange(state, isHost)- Called when connection state changes
+    getState()                  - [Host] Return current game state for new players
+    onStateSync(state)          - [Client] Called with game state when joining
+    interpolationDelay          - Delay in ms for smooth interpolation (default: 100)
+    gameId                      - Enable persistence with this game ID (IndexedDB)
+    autoSaveInterval            - Auto-save interval in ms (default: 30000, 0 to disable)
+
+  Features:
+    - Automatic state sync when players join
+    - Session history (last 5 sessions saved to localStorage)
+    - Quick resume from recent sessions
+    - QR code and manual code connection methods
+    - UNRELIABLE channel for high-frequency position updates (no packet delay)
+    - Built-in interpolation for smooth remote player rendering
+    - Voice chat with echo cancellation, noise suppression, auto gain
+    - Optional IndexedDB persistence for world saves and player identity
+=============================================*/
+
+/*=============================================
+  INTERPOLATION HELPER
+  =============================================
+  Buffers position updates and smoothly lerps
+  between them for fluid remote player movement.
+
+  Usage:
+    const interp = new Interpolator({ delay: 100 });
+
+    // When receiving position updates:
+    interp.pushState(playerId, { x, y, angle });
+
+    // In render loop:
+    const smoothPos = interp.getState(playerId);
+=============================================*/
+
+class Interpolator {
+    constructor(options = {}) {
+        this.delay = options.delay || 100; // ms of interpolation delay
+        this.maxBufferSize = options.maxBufferSize || 10;
+        this.buffers = new Map(); // playerId -> [{ time, state }]
+    }
+
+    // Add a new state update to the buffer
+    pushState(playerId, state) {
+        if (!this.buffers.has(playerId)) {
+            this.buffers.set(playerId, []);
+        }
+
+        const buffer = this.buffers.get(playerId);
+        buffer.push({
+            time: Date.now(),
+            state: { ...state }
+        });
+
+        // Keep buffer size manageable
+        while (buffer.length > this.maxBufferSize) {
+            buffer.shift();
+        }
+    }
+
+    // Get interpolated state for a player
+    getState(playerId) {
+        const buffer = this.buffers.get(playerId);
+        if (!buffer || buffer.length === 0) return null;
+
+        // Render time is current time minus delay
+        const renderTime = Date.now() - this.delay;
+
+        // Find the two states to interpolate between
+        let before = null;
+        let after = null;
+
+        for (let i = 0; i < buffer.length; i++) {
+            if (buffer[i].time <= renderTime) {
+                before = buffer[i];
+            } else {
+                after = buffer[i];
+                break;
+            }
+        }
+
+        // If no states before render time, use oldest
+        if (!before) {
+            return buffer[0].state;
+        }
+
+        // If no states after render time, use newest
+        if (!after) {
+            return before.state;
+        }
+
+        // Interpolate between before and after
+        const range = after.time - before.time;
+        const progress = range > 0 ? (renderTime - before.time) / range : 0;
+        const t = Math.max(0, Math.min(1, progress));
+
+        return this._lerp(before.state, after.state, t);
+    }
+
+    // Linear interpolation between two states
+    _lerp(a, b, t) {
+        const result = {};
+
+        for (const key in b) {
+            if (typeof b[key] === 'number' && typeof a[key] === 'number') {
+                // Handle angle wrapping for rotation
+                if (key === 'angle' || key === 'rotation') {
+                    result[key] = this._lerpAngle(a[key], b[key], t);
+                } else {
+                    result[key] = a[key] + (b[key] - a[key]) * t;
+                }
+            } else {
+                result[key] = b[key];
+            }
+        }
+
+        return result;
+    }
+
+    // Lerp angles handling wrap-around
+    _lerpAngle(a, b, t) {
+        const diff = b - a;
+        const TAU = Math.PI * 2;
+
+        // Normalize to shortest path
+        const normalized = ((diff % TAU) + TAU + Math.PI) % TAU - Math.PI;
+        return a + normalized * t;
+    }
+
+    // Remove a player's buffer
+    removePlayer(playerId) {
+        this.buffers.delete(playerId);
+    }
+
+    // Clear all buffers
+    clear() {
+        this.buffers.clear();
+    }
+}
+
+// Expose Interpolator globally
+window.Interpolator = Interpolator;
+
+class Peared {
+    constructor(options = {}) {
+        this.options = {
+            onPlayerJoin: options.onPlayerJoin || (() => {}),
+            onPlayerLeave: options.onPlayerLeave || (() => {}),
+            onMessage: options.onMessage || (() => {}),
+            onUnreliableMessage: options.onUnreliableMessage || null, // Separate handler for unreliable
+            onStateChange: options.onStateChange || (() => {}),
+            // State sync callbacks - for syncing game state when players join
+            getState: options.getState || null,      // () => gameState (host provides current state)
+            onStateSync: options.onStateSync || (() => {}),  // (state) => void (clients receive state)
+            // Interpolation settings
+            interpolationDelay: options.interpolationDelay || 100, // ms
+            // Persistence settings (optional)
+            gameId: options.gameId || null,          // Enable persistence with this game ID
+            autoSaveInterval: options.autoSaveInterval || 30000,  // Auto-save every 30s (0 to disable)
+            iceServers: options.iceServers || [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                {
+                    urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
+            ]
+        };
+
+        this.isHost = false;
+        this.localPlayer = null;
+        this.peers = new Map(); // peerId -> { connection, dataChannel, unreliableChannel, player }
+        this.pendingConnections = new Map(); // peerId -> { connection, offer }
+        this.allPlayers = new Map(); // playerId -> player (all known players including self)
+        this.state = 'disconnected'; // disconnected, hosting, connecting, connected
+
+        // Built-in interpolator for position smoothing
+        this.interpolator = new Interpolator({ delay: this.options.interpolationDelay });
+
+        // Voice chat state
+        this.localStream = null;       // Local microphone stream
+        this.voiceEnabled = false;     // Is voice chat active
+        this.muted = false;            // Is local mic muted
+        this.remoteAudios = new Map(); // peerId -> HTMLAudioElement
+
+        // Persistence (optional)
+        this.persistence = this.options.gameId ? new PearedPersistence(this.options.gameId) : null;
+        this.currentWorldId = null;
+        this._autoSaveInterval = null;
+
+        // Firebase signaling
+        this.firebase = new FirebaseSignaling();
+        this.roomCode = null;
+        this._heartbeatInterval = null;
+
+        this._setupUI();
+        this._setupDebugPanel();
+        this._setupFirebaseUI();
+        this._setupCleanup();
+        this._loadSavedIdentity();
+        this._log('info', 'Peared initialized' + (this.persistence ? ' with persistence' : ''));
+    }
+
+    _setupCleanup() {
+        // Clean up room when page is closed/refreshed
+        window.addEventListener('beforeunload', () => {
+            if (this.isHost && this.firebase.roomRef) {
+                // Use sendBeacon for reliable cleanup on page unload
+                // Firebase doesn't support sendBeacon, so we use onDisconnect (already set)
+                // But also try synchronous remove as backup
+                try {
+                    this.firebase.roomRef.remove();
+                } catch (e) {
+                    // Ignore - onDisconnect will handle it
+                }
+            }
+        });
+
+        // Also clean up on visibility change (tab hidden for too long)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && this.isHost) {
+                // Update last seen timestamp
+                this.firebase.updateHeartbeat();
+            }
+        });
+    }
+
+    _startHeartbeat() {
+        // Send heartbeat every 30 seconds to indicate room is still active
+        if (this._heartbeatInterval) clearInterval(this._heartbeatInterval);
+        this._heartbeatInterval = setInterval(() => {
+            if (this.isHost && this.firebase.roomRef) {
+                this.firebase.updateHeartbeat();
+            }
+        }, 30000);
+    }
+
+    _stopHeartbeat() {
+        if (this._heartbeatInterval) {
+            clearInterval(this._heartbeatInterval);
+            this._heartbeatInterval = null;
+        }
+    }
+
+    // ===== PERSISTENCE METHODS =====
+
+    async _loadSavedIdentity() {
+        if (!this.persistence) return;
+
+        try {
+            const identity = await this.persistence.loadIdentity();
+            if (identity) {
+                // Pre-fill the name field if it exists
+                const nameInput = document.getElementById('peared-player-name');
+                if (nameInput && identity.name) {
+                    nameInput.value = identity.name;
+                }
+                this._log('info', `Loaded saved identity: "${identity.name}"`);
+            }
+        } catch (error) {
+            this._log('warning', 'Failed to load saved identity', error.message);
+        }
+    }
+
+    /**
+     * Save player identity (name, color, optional PIN)
+     * @param {Object} identity - { name, color, pin? }
+     */
+    async saveIdentity(identity) {
+        if (!this.persistence) {
+            this._log('warning', 'Persistence not enabled - set gameId option');
+            return false;
+        }
+
+        try {
+            await this.persistence.saveIdentity(identity);
+            this._log('success', 'Identity saved');
+            return true;
+        } catch (error) {
+            this._log('error', 'Failed to save identity', error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Verify PIN for identity protection
+     * @param {string} pin - The PIN to verify
+     * @returns {Promise<boolean>}
+     */
+    async verifyPin(pin) {
+        if (!this.persistence) return true;
+        return this.persistence.verifyPin(pin);
+    }
+
+    /**
+     * List available world saves
+     * @returns {Promise<Array>} Array of world metadata
+     */
+    async listWorlds() {
+        if (!this.persistence) return [];
+        return this.persistence.listWorlds();
+    }
+
+    /**
+     * Save current game state to a world slot
+     * @param {string} id - World ID (e.g., 'world-1')
+     * @param {string} name - Display name for the world
+     * @param {Object} data - Game state data to save
+     * @param {string} password - Optional password protection
+     */
+    async saveWorld(id, name, data, password = null) {
+        if (!this.persistence) {
+            this._log('warning', 'Persistence not enabled');
+            return null;
+        }
+
+        try {
+            const world = await this.persistence.saveWorld(id, name, data, password);
+            this._log('success', `World "${name}" saved`);
+            return world;
+        } catch (error) {
+            this._log('error', 'Failed to save world', error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Load a saved world
+     * @param {string} id - World ID to load
+     * @param {string} password - Password if protected
+     * @returns {Promise<Object|null>} World data or null
+     */
+    async loadWorld(id, password = null) {
+        if (!this.persistence) return null;
+
+        try {
+            const world = await this.persistence.loadWorld(id, password);
+            if (world) {
+                this._log('success', `World "${world.name}" loaded`);
+            }
+            return world;
+        } catch (error) {
+            this._log('error', 'Failed to load world', error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Delete a saved world
+     * @param {string} id - World ID to delete
+     */
+    async deleteWorld(id) {
+        if (!this.persistence) return false;
+
+        try {
+            await this.persistence.deleteWorld(id);
+            this._log('info', `World deleted: ${id}`);
+            return true;
+        } catch (error) {
+            this._log('error', 'Failed to delete world', error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Export world as shareable string
+     * @param {string} id - World ID to export
+     * @param {string} password - Password if protected
+     * @returns {Promise<string|null>} Compressed export string
+     */
+    async exportWorld(id, password = null) {
+        if (!this.persistence) return null;
+        return this.persistence.exportWorld(id, password);
+    }
+
+    /**
+     * Import world from export string
+     * @param {string} exportString - The export data
+     * @param {string} newName - Optional new name for the world
+     * @returns {Promise<Object|null>} Imported world metadata
+     */
+    async importWorld(exportString, newName = null) {
+        if (!this.persistence) return null;
+
+        try {
+            const world = await this.persistence.importWorld(exportString, newName);
+            this._log('success', `World "${world.name}" imported`);
+            return world;
+        } catch (error) {
+            this._log('error', 'Failed to import world', error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Start auto-save interval (call after hosting starts)
+     * @param {Function} getStateCallback - Function that returns current game state
+     * @param {string} worldId - World ID to save to
+     * @param {string} worldName - World display name
+     */
+    startAutoSave(getStateCallback, worldId, worldName) {
+        if (!this.persistence || !this.options.autoSaveInterval) return;
+
+        this.stopAutoSave(); // Clear any existing interval
+
+        this._autoSaveInterval = setInterval(async () => {
+            if (this.isHost) {
+                const state = getStateCallback();
+                if (state) {
+                    await this.saveWorld(worldId, worldName, state);
+                }
+            }
+        }, this.options.autoSaveInterval);
+
+        this._log('info', `Auto-save enabled every ${this.options.autoSaveInterval / 1000}s`);
+    }
+
+    /**
+     * Stop auto-save interval
+     */
+    stopAutoSave() {
+        if (this._autoSaveInterval) {
+            clearInterval(this._autoSaveInterval);
+            this._autoSaveInterval = null;
+        }
+    }
+
+    // ===== FIREBASE INTEGRATION =====
+
+    _setupFirebaseUI() {
+        // Room code copy button
+        document.getElementById('peared-copy-room-code')?.addEventListener('click', () => {
+            const code = this.roomCode;
+            if (code) {
+                navigator.clipboard.writeText(code).then(() => {
+                    const btn = document.getElementById('peared-copy-room-code');
+                    btn.textContent = '✓ Copied!';
+                    setTimeout(() => btn.textContent = '📋 Copy Room Code', 2000);
+                });
+            }
+        });
+
+        // Join room by code
+        document.getElementById('peared-join-room-btn')?.addEventListener('click', () => {
+            const code = document.getElementById('peared-room-code-input').value.trim();
+            if (code) {
+                this._joinViaFirebase(code);
+            }
+        });
+
+        // Room code input - auto uppercase and join on Enter
+        document.getElementById('peared-room-code-input')?.addEventListener('input', (e) => {
+            e.target.value = e.target.value.toUpperCase();
+        });
+        document.getElementById('peared-room-code-input')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('peared-join-room-btn').click();
+            }
+        });
+
+        // Refresh rooms button
+        document.getElementById('peared-refresh-rooms')?.addEventListener('click', () => {
+            this._refreshRoomBrowser();
+        });
+
+        // Start listening for room updates
+        if (firebaseConnected || firebaseDb) {
+            this.firebase.onRoomsUpdate((rooms) => {
+                this._renderRoomBrowser(rooms);
+            });
+        }
+    }
+
+    _renderRoomBrowser(rooms) {
+        const container = document.getElementById('peared-room-browser');
+        if (!container) return;
+
+        if (rooms.length === 0) {
+            container.innerHTML = `
+                <div class="peared-no-rooms">
+                    <span class="emoji">🎮</span>
+                    No games found
+                    <div class="subtitle">Enter a room code above or host your own game</div>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = rooms.map(room => `
+            <div class="peared-room-item" data-code="${room.code}">
+                <div class="peared-room-info">
+                    <div class="peared-room-host">${room.host}'s Game</div>
+                    <div class="peared-room-meta">Code: ${room.code}</div>
+                </div>
+                <span class="peared-room-players ${room.players >= room.maxPlayers ? 'full' : ''}">
+                    ${room.players}/${room.maxPlayers}
+                </span>
+                <button class="peared-btn peared-room-join-btn" ${room.players >= room.maxPlayers ? 'disabled' : ''}>
+                    Join
+                </button>
+            </div>
+        `).join('');
+
+        // Add click handlers
+        container.querySelectorAll('.peared-room-item').forEach(item => {
+            const joinBtn = item.querySelector('.peared-room-join-btn');
+            if (joinBtn && !joinBtn.disabled) {
+                joinBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const code = item.dataset.code;
+                    this._joinViaFirebase(code);
+                });
+            }
+        });
+    }
+
+    async _refreshRoomBrowser() {
+        const container = document.getElementById('peared-room-browser');
+        if (container) {
+            container.innerHTML = `
+                <div class="peared-no-rooms">
+                    <span class="emoji">🔍</span>
+                    Searching for games...
+                </div>
+            `;
+        }
+        const rooms = await this.firebase.getPublicRooms();
+        this._renderRoomBrowser(rooms);
+    }
+
+    async _joinViaFirebase(roomCode) {
+        const statusEl = document.getElementById('peared-joining-status');
+        if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.querySelector('.peared-status').textContent = `Connecting to ${roomCode}...`;
+        }
+
+        try {
+            const room = await this.firebase.joinRoom(roomCode);
+            this._log('info', `Joining room ${roomCode}, host: ${room.host}`);
+
+            // Set up local player
+            const playerName = document.getElementById('peared-player-name').value || 'Player';
+            this.localPlayer = {
+                id: this._generateId(),
+                name: playerName,
+                color: this._generateColor(),
+                isHost: false
+            };
+            this.allPlayers.set(this.localPlayer.id, this.localPlayer);
+
+            // Process the offer from Firebase
+            const offerData = room.offer;
+            this._log('info', `Processing offer from host "${offerData.hostName}"`);
+
+            const answerData = await this._createClientAnswerFromOffer(offerData);
+
+            // Submit answer via Firebase
+            await this.firebase.setAnswer(answerData);
+
+            if (statusEl) {
+                statusEl.querySelector('.peared-status').textContent = 'Waiting for host to accept...';
+            }
+
+        } catch (error) {
+            this._log('error', 'Failed to join room', error.message);
+            if (statusEl) {
+                statusEl.querySelector('.peared-status').textContent = `Error: ${error.message}`;
+                statusEl.querySelector('.peared-status').className = 'peared-status error';
+            }
+        }
+    }
+
+    async _createClientAnswerFromOffer(offerData) {
+        this._log('info', `Connecting to host "${offerData.hostName}"`);
+
+        const connection = new RTCPeerConnection({ iceServers: this.options.iceServers });
+
+        // Handle incoming audio tracks (voice chat)
+        connection.ontrack = (event) => {
+            this._handleRemoteTrack(event, offerData.hostId);
+        };
+
+        // Add local audio if voice chat is enabled
+        if (this.voiceEnabled && this.localStream) {
+            this._addAudioToPeer(connection, offerData.hostId);
+        }
+
+        // Handle incoming data channels (reliable and unreliable)
+        connection.ondatachannel = (event) => {
+            const channel = event.channel;
+            if (channel.label === 'peared') {
+                this._log('info', 'Reliable data channel received from host');
+                this._setupDataChannel(channel, offerData.hostId);
+            } else if (channel.label === 'peared-fast') {
+                this._log('info', 'Unreliable data channel received from host');
+                this._setupUnreliableChannel(channel, offerData.hostId);
+            }
+        };
+
+        // ICE candidate gathering
+        const candidates = [];
+        connection.onicecandidate = (e) => {
+            if (e.candidate) {
+                candidates.push(e.candidate);
+            }
+        };
+
+        // Connection state
+        connection.onconnectionstatechange = () => {
+            this._log('info', `Connection state: ${connection.connectionState}`);
+            if (connection.connectionState === 'connected') {
+                this.state = 'connected';
+                this._updateState();
+            } else if (connection.connectionState === 'disconnected' || connection.connectionState === 'failed') {
+                this._log('warning', 'Connection lost');
+                this.state = 'disconnected';
+                this._updateState();
+                this.options.onPlayerLeave({ id: offerData.hostId });
+            }
+        };
+
+        this.peers.set(offerData.hostId, {
+            connection,
+            dataChannel: null,
+            unreliableChannel: null,
+            player: { id: offerData.hostId, name: offerData.hostName, isHost: true }
+        });
+
+        // Process offer
+        await connection.setRemoteDescription(new RTCSessionDescription(offerData.offer));
+        this._log('info', 'Remote description (offer) set');
+
+        if (offerData.candidates) {
+            for (const candidate of offerData.candidates) {
+                await connection.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+        }
+
+        // Create answer
+        const answer = await connection.createAnswer();
+        await connection.setLocalDescription(answer);
+
+        // Wait for ICE gathering
+        await this._waitForIce(connection);
+
+        // Convert RTCSessionDescription to plain object for Firebase serialization
+        const answerSdp = connection.localDescription;
+        return {
+            peerId: offerData.peerId,
+            answer: { type: answerSdp.type, sdp: answerSdp.sdp },
+            player: this.localPlayer,
+            candidates: candidates.map(c => c.toJSON ? c.toJSON() : c)
+        };
+    }
+
+    _formatTimeAgo(timestamp) {
+        const seconds = Math.floor((Date.now() - timestamp) / 1000);
+        if (seconds < 60) return 'just now';
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+        return `${Math.floor(seconds / 86400)}d ago`;
+    }
+    
+    // ===== LOGGING =====
+    
+    _log(level, message, data = null) {
+        const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+        const logEntry = { time, level, message, data };
+        
+        // Console log
+        const consoleMsg = `[Peared ${time}] ${message}`;
+        if (level === 'error') console.error(consoleMsg, data || '');
+        else if (level === 'warning') console.warn(consoleMsg, data || '');
+        else console.log(consoleMsg, data || '');
+        
+        // UI log
+        const logContainer = document.getElementById('peared-debug-log');
+        if (logContainer) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-time">${time}</span> <span class="log-${level}">${message}</span>`;
+            if (data) {
+                const dataStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+                if (dataStr.length < 100) {
+                    entry.innerHTML += ` <span style="color:#888">${dataStr}</span>`;
+                }
+            }
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+    }
+    
+    _setupDebugPanel() {
+        // Keyboard shortcut: Ctrl+Shift+D to toggle debug panel
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+                e.preventDefault();
+                const panel = document.getElementById('peared-debug-panel');
+                panel.classList.toggle('active');
+            }
+        });
+
+        // Close button
+        document.getElementById('peared-debug-close')?.addEventListener('click', () => {
+            document.getElementById('peared-debug-panel').classList.remove('active');
+        });
+
+        // Clear button
+        document.getElementById('peared-debug-clear')?.addEventListener('click', () => {
+            document.getElementById('peared-debug-log').innerHTML = '';
+            this._log('info', 'Log cleared');
+        });
+    }
+    
+    // ===== PUBLIC API =====
+    
+    host(playerName) {
+        this.isHost = true;
+        this.localPlayer = {
+            id: this._generateId(),
+            name: playerName || 'Host',
+            color: this._generateColor(),
+            isHost: true
+        };
+        this.allPlayers.set(this.localPlayer.id, this.localPlayer);
+        this.state = 'hosting';
+        this._log('success', `Started hosting as "${this.localPlayer.name}"`, { playerId: this.localPlayer.id });
+        this._updateState();
+        this.options.onPlayerJoin(this.localPlayer);
+
+        // Save identity to persistence if enabled
+        if (this.persistence) {
+            this.saveIdentity({
+                name: this.localPlayer.name,
+                color: this.localPlayer.color
+            });
+        }
+
+        return this.localPlayer;
+    }
+    
+    getPlayers() {
+        return Array.from(this.allPlayers.values());
+    }
+    
+    send(type, data) {
+        const message = JSON.stringify({ type, data, from: this.localPlayer?.id });
+        console.log('[Peared] send - type:', type, 'from:', this.localPlayer?.id);
+
+        if (this.isHost) {
+            // Host broadcasts to all clients
+            this.peers.forEach(peer => {
+                if (peer.dataChannel?.readyState === 'open') {
+                    peer.dataChannel.send(message);
+                }
+            });
+        } else {
+            // Client sends to host
+            const hostPeer = this.peers.values().next().value;
+            if (hostPeer?.dataChannel?.readyState === 'open') {
+                hostPeer.dataChannel.send(message);
+            }
+        }
+    }
+    
+    broadcast(type, data, excludeId = null, originalFrom = null) {
+        if (!this.isHost) return;
+        // Use originalFrom if provided (for relaying), otherwise use host's ID
+        const senderId = originalFrom || this.localPlayer?.id;
+        const message = JSON.stringify({ type, data, from: senderId });
+
+        this.peers.forEach((peer, peerId) => {
+            if (peerId !== excludeId && peer.dataChannel?.readyState === 'open') {
+                peer.dataChannel.send(message);
+            }
+        });
+    }
+    
+    sendTo(peerId, type, data) {
+        const peer = this.peers.get(peerId);
+        if (peer?.dataChannel?.readyState === 'open') {
+            const message = JSON.stringify({ type, data, from: this.localPlayer?.id });
+            peer.dataChannel.send(message);
+        }
+    }
+
+    /**
+     * Send data via unreliable channel (for high-frequency updates like position)
+     * Packets may be dropped or arrive out of order - use for non-critical, frequent data
+     */
+    sendUnreliable(type, data) {
+        const message = JSON.stringify({ type, data, from: this.localPlayer?.id });
+
+        if (this.isHost) {
+            // Host broadcasts to all clients via unreliable channel
+            this.peers.forEach(peer => {
+                if (peer.unreliableChannel?.readyState === 'open') {
+                    peer.unreliableChannel.send(message);
+                }
+            });
+        } else {
+            // Client sends to host via unreliable channel
+            const hostPeer = this.peers.values().next().value;
+            if (hostPeer?.unreliableChannel?.readyState === 'open') {
+                hostPeer.unreliableChannel.send(message);
+            }
+        }
+    }
+
+    /**
+     * Broadcast via unreliable channel (host only)
+     */
+    broadcastUnreliable(type, data, excludeId = null, originalFrom = null) {
+        if (!this.isHost) return;
+
+        const senderId = originalFrom || this.localPlayer?.id;
+        const message = JSON.stringify({ type, data, from: senderId });
+
+        this.peers.forEach((peer, peerId) => {
+            if (peerId !== excludeId && peer.unreliableChannel?.readyState === 'open') {
+                peer.unreliableChannel.send(message);
+            }
+        });
+    }
+
+    /**
+     * Get interpolated position for a remote player
+     * Use this in your render loop for smooth remote player movement
+     */
+    getInterpolatedState(playerId) {
+        return this.interpolator.getState(playerId);
+    }
+
+    /**
+     * Push a state update for interpolation (called automatically by unreliable handler)
+     * Or call manually if you want custom interpolation handling
+     */
+    pushStateForInterpolation(playerId, state) {
+        this.interpolator.pushState(playerId, state);
+    }
+
+    close() {
+        this.peers.forEach(peer => {
+            peer.dataChannel?.close();
+            peer.unreliableChannel?.close();
+            peer.connection?.close();
+        });
+        this.peers.clear();
+        this.pendingConnections.clear();
+        this.allPlayers.clear();
+        this.interpolator.clear();
+        this.state = 'disconnected';
+        this.isHost = false;
+        this.localPlayer = null;
+        this.roomCode = null;
+
+        // Stop heartbeat
+        this._stopHeartbeat();
+
+        // Stop auto-save
+        this.stopAutoSave();
+
+        // Disable voice chat
+        this.disableVoice();
+
+        // Clean up Firebase
+        this.firebase.destroy();
+
+        this._updateState();
+    }
+    
+    showPopup() {
+        document.getElementById('peared-overlay').classList.add('active');
+    }
+    
+    hidePopup() {
+        document.getElementById('peared-overlay').classList.remove('active');
+        this._stopCamera();
+    }
+
+    // ===== VOICE CHAT API =====
+
+    /**
+     * Enable voice chat - requests microphone access and adds audio to all connections
+     * @returns {Promise<boolean>} true if successful
+     */
+    async enableVoice() {
+        if (this.voiceEnabled) return true;
+
+        try {
+            this._log('info', 'Requesting microphone access...');
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                },
+                video: false
+            });
+
+            this.voiceEnabled = true;
+            this._log('success', '🎤 Microphone enabled');
+
+            // Add audio track to all existing peer connections
+            const peerCount = this.peers.size;
+            this._log('info', `Adding audio to ${peerCount} existing peer(s)`);
+
+            this.peers.forEach((peer, peerId) => {
+                this._log('info', `Adding audio to peer: ${peer.player?.name || peerId}`);
+                this._addAudioToPeer(peer.connection, peerId);
+            });
+
+            this._updateVoiceUI();
+            return true;
+        } catch (error) {
+            this._log('error', 'Failed to access microphone', error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Disable voice chat - stops microphone and removes audio from connections
+     */
+    disableVoice() {
+        if (!this.voiceEnabled) return;
+
+        // Stop local stream
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(track => track.stop());
+            this.localStream = null;
+        }
+
+        // Stop all remote audio
+        this.remoteAudios.forEach(audio => {
+            audio.srcObject = null;
+            audio.remove();
+        });
+        this.remoteAudios.clear();
+
+        this.voiceEnabled = false;
+        this._log('info', 'Voice chat disabled');
+        this._updateVoiceUI();
+    }
+
+    /**
+     * Mute local microphone (still transmitting silence)
+     */
+    mute() {
+        if (!this.localStream) return;
+        this.localStream.getAudioTracks().forEach(track => {
+            track.enabled = false;
+        });
+        this.muted = true;
+        this._log('info', 'Microphone muted');
+        this._updateVoiceUI();
+    }
+
+    /**
+     * Unmute local microphone
+     */
+    unmute() {
+        if (!this.localStream) return;
+        this.localStream.getAudioTracks().forEach(track => {
+            track.enabled = true;
+        });
+        this.muted = false;
+        this._log('info', 'Microphone unmuted');
+        this._updateVoiceUI();
+    }
+
+    /**
+     * Toggle mute state
+     * @returns {boolean} new muted state
+     */
+    toggleMute() {
+        if (this.muted) {
+            this.unmute();
+        } else {
+            this.mute();
+        }
+        return this.muted;
+    }
+
+    /**
+     * Set volume for a specific remote player (0.0 to 1.0)
+     */
+    setPlayerVolume(playerId, volume) {
+        // Find the peer by player ID
+        for (const [peerId, peer] of this.peers) {
+            if (peer.player?.id === playerId) {
+                const audio = this.remoteAudios.get(peerId);
+                if (audio) {
+                    audio.volume = Math.max(0, Math.min(1, volume));
+                }
+                break;
+            }
+        }
+    }
+
+    /**
+     * Check if voice chat is currently enabled
+     */
+    isVoiceEnabled() {
+        return this.voiceEnabled;
+    }
+
+    /**
+     * Check if local mic is muted
+     */
+    isMuted() {
+        return this.muted;
+    }
+
+    // ===== PRIVATE: VOICE CHAT HELPERS =====
+
+    _addAudioToPeer(connection, peerId) {
+        if (!this.localStream) return;
+
+        // Check if we already have audio senders
+        const existingSenders = connection.getSenders().filter(s => s.track?.kind === 'audio');
+        if (existingSenders.length > 0) {
+            this._log('info', 'Audio track already added to peer', { peerId });
+            return;
+        }
+
+        // Add local audio track to the connection
+        this.localStream.getAudioTracks().forEach(track => {
+            connection.addTrack(track, this.localStream);
+        });
+
+        this._log('info', `Added audio track to peer`, { peerId });
+
+        // If connection is already established, we need to renegotiate
+        if (connection.signalingState === 'stable' && connection.connectionState === 'connected') {
+            this._log('info', 'Connection already established, triggering renegotiation...');
+            this._renegotiateConnection(connection, peerId);
+        }
+    }
+
+    async _renegotiateConnection(connection, peerId) {
+        try {
+            // Create new offer with audio
+            const offer = await connection.createOffer();
+            await connection.setLocalDescription(offer);
+
+            this._log('info', 'Sending renegotiation offer via data channel');
+
+            // Send offer via data channel
+            const peer = this.peers.get(peerId);
+            if (peer?.dataChannel?.readyState === 'open') {
+                peer.dataChannel.send(JSON.stringify({
+                    type: '_peared_renegotiate',
+                    data: {
+                        offer: { type: offer.type, sdp: offer.sdp }
+                    },
+                    from: this.localPlayer?.id
+                }));
+            }
+        } catch (error) {
+            this._log('error', 'Renegotiation failed', error.message);
+        }
+    }
+
+    async _handleRenegotiateOffer(peerId, offerData) {
+        const peer = this.peers.get(peerId);
+        if (!peer) return;
+
+        try {
+            this._log('info', 'Processing renegotiation offer');
+
+            // Add our audio track too if voice is enabled (so audio flows both ways)
+            if (this.voiceEnabled && this.localStream) {
+                const existingSenders = peer.connection.getSenders().filter(s => s.track?.kind === 'audio');
+                if (existingSenders.length === 0) {
+                    this.localStream.getAudioTracks().forEach(track => {
+                        peer.connection.addTrack(track, this.localStream);
+                    });
+                    this._log('info', 'Added our audio track during renegotiation');
+                }
+            }
+
+            await peer.connection.setRemoteDescription(new RTCSessionDescription(offerData.offer));
+
+            const answer = await peer.connection.createAnswer();
+            await peer.connection.setLocalDescription(answer);
+
+            // Send answer back
+            if (peer.dataChannel?.readyState === 'open') {
+                peer.dataChannel.send(JSON.stringify({
+                    type: '_peared_renegotiate_answer',
+                    data: {
+                        answer: { type: answer.type, sdp: answer.sdp }
+                    },
+                    from: this.localPlayer?.id
+                }));
+            }
+
+            this._log('success', 'Renegotiation answer sent');
+        } catch (error) {
+            this._log('error', 'Failed to handle renegotiation offer', error.message);
+        }
+    }
+
+    async _handleRenegotiateAnswer(peerId, answerData) {
+        const peer = this.peers.get(peerId);
+        if (!peer) return;
+
+        try {
+            await peer.connection.setRemoteDescription(new RTCSessionDescription(answerData.answer));
+            this._log('success', 'Renegotiation complete');
+        } catch (error) {
+            this._log('error', 'Failed to handle renegotiation answer', error.message);
+        }
+    }
+
+    _handleRemoteTrack(event, peerId) {
+        this._log('info', `Received track: ${event.track.kind}`, { peerId, trackId: event.track.id });
+
+        if (event.track.kind !== 'audio') return;
+
+        this._log('success', `🎧 Audio track received from peer!`, { peerId });
+
+        // Create audio element for this peer if not exists
+        let audio = this.remoteAudios.get(peerId);
+        if (!audio) {
+            audio = document.createElement('audio');
+            audio.autoplay = true;
+            audio.playsInline = true;
+            // Hidden but needs to be in DOM for some browsers
+            audio.style.display = 'none';
+            document.body.appendChild(audio);
+            this.remoteAudios.set(peerId, audio);
+        }
+
+        // Set the stream
+        if (event.streams && event.streams[0]) {
+            audio.srcObject = event.streams[0];
+        } else {
+            // Fallback: create stream from track
+            const stream = new MediaStream([event.track]);
+            audio.srcObject = stream;
+        }
+
+        // Try to play (may be blocked by autoplay policy)
+        audio.play().then(() => {
+            this._log('success', '🔊 Audio playback started!', { peerId });
+        }).catch(err => {
+            this._log('warning', 'Audio autoplay blocked - click anywhere to enable', err.message);
+
+            // Add one-time click handler to resume audio
+            const resumeAudio = () => {
+                audio.play().then(() => {
+                    this._log('success', '🔊 Audio playback resumed after click');
+                }).catch(() => {});
+                document.removeEventListener('click', resumeAudio);
+            };
+            document.addEventListener('click', resumeAudio);
+        });
+
+        // Handle track ending
+        event.track.onended = () => {
+            this._log('info', `Audio track ended from peer`, { peerId });
+        };
+    }
+
+    _cleanupPeerAudio(peerId) {
+        const audio = this.remoteAudios.get(peerId);
+        if (audio) {
+            audio.srcObject = null;
+            audio.remove();
+            this.remoteAudios.delete(peerId);
+        }
+    }
+
+    _updateVoiceUI() {
+        const btn = document.getElementById('peared-voice-btn');
+        if (btn) {
+            if (!this.voiceEnabled) {
+                btn.textContent = '🎤 Enable Voice';
+                btn.className = 'peared-voice-btn';
+            } else if (this.muted) {
+                btn.textContent = '🔇 Muted';
+                btn.className = 'peared-voice-btn muted';
+            } else {
+                btn.textContent = '🎤 Voice On';
+                btn.className = 'peared-voice-btn active';
+            }
+        }
+    }
+
+    // ===== PRIVATE: CONNECTION MANAGEMENT =====
+    
+    async _createHostOffer() {
+        const peerId = this._generateId();
+        this._log('info', `Creating offer for new peer`, { peerId });
+
+        const connection = new RTCPeerConnection({ iceServers: this.options.iceServers });
+
+        // Handle incoming audio tracks (voice chat)
+        connection.ontrack = (event) => {
+            this._handleRemoteTrack(event, peerId);
+        };
+
+        // Add local audio if voice chat is enabled
+        if (this.voiceEnabled && this.localStream) {
+            this._addAudioToPeer(connection, peerId);
+        }
+
+        // Create reliable channel (for game events, chat, state sync)
+        const dataChannel = connection.createDataChannel('peared');
+        this._setupDataChannel(dataChannel, peerId);
+
+        // Create unreliable channel (for high-frequency position updates)
+        const unreliableChannel = connection.createDataChannel('peared-fast', {
+            ordered: false,
+            maxRetransmits: 0
+        });
+        this._setupUnreliableChannel(unreliableChannel, peerId);
+
+        this.pendingConnections.set(peerId, { connection, dataChannel, unreliableChannel });
+        
+        // ICE candidate gathering
+        const candidates = [];
+        connection.onicecandidate = (e) => {
+            if (e.candidate) {
+                candidates.push(e.candidate);
+                this._log('info', `ICE candidate gathered`, { type: e.candidate.type || 'unknown' });
+            }
+        };
+        
+        const offer = await connection.createOffer();
+        await connection.setLocalDescription(offer);
+        this._log('info', 'Local description set, gathering ICE...');
+        
+        // Wait for ICE gathering
+        await this._waitForIce(connection);
+        this._log('success', `Offer ready with ${candidates.length} ICE candidates`);
+        
+        // Convert RTCSessionDescription to plain object for Firebase serialization
+        const offerSdp = connection.localDescription;
+        return {
+            peerId,
+            offer: { type: offerSdp.type, sdp: offerSdp.sdp },
+            hostId: this.localPlayer.id,
+            hostName: this.localPlayer.name,
+            candidates: candidates.map(c => c.toJSON ? c.toJSON() : c)
+        };
+    }
+    
+    async _processAnswer(answerData) {
+        this._log('info', `Processing answer from peer`, { peerId: answerData.peerId });
+        
+        const pending = this.pendingConnections.get(answerData.peerId);
+        if (!pending) {
+            this._log('error', 'No pending connection found', { peerId: answerData.peerId });
+            return false;
+        }
+        
+        try {
+            await pending.connection.setRemoteDescription(new RTCSessionDescription(answerData.answer));
+            this._log('info', 'Remote description set');
+            
+            if (answerData.candidates) {
+                this._log('info', `Adding ${answerData.candidates.length} ICE candidates`);
+                for (const candidate of answerData.candidates) {
+                    await pending.connection.addIceCandidate(new RTCIceCandidate(candidate));
+                }
+            }
+            
+            // Move to active peers
+            this.peers.set(answerData.peerId, pending);
+            this.pendingConnections.delete(answerData.peerId);
+            
+            this._log('success', 'Peer connection established', { peerId: answerData.peerId });
+            return true;
+        } catch (error) {
+            this._log('error', 'Error processing answer', error.message);
+            return false;
+        }
+    }
+    
+    async _createClientAnswer(offerData) {
+        this._log('info', `Connecting to host "${offerData.hostName}"`);
+
+        const connection = new RTCPeerConnection({ iceServers: this.options.iceServers });
+
+        this.localPlayer = {
+            id: this._generateId(),
+            name: document.getElementById('peared-player-name').value || 'Player',
+            color: this._generateColor(),
+            isHost: false
+        };
+        this.allPlayers.set(this.localPlayer.id, this.localPlayer);
+        this._log('info', `Local player created: "${this.localPlayer.name}"`);
+
+        // Handle incoming audio tracks (voice chat)
+        connection.ontrack = (event) => {
+            this._handleRemoteTrack(event, offerData.hostId);
+        };
+
+        // Add local audio if voice chat is enabled
+        if (this.voiceEnabled && this.localStream) {
+            this._addAudioToPeer(connection, offerData.hostId);
+        }
+
+        // Handle incoming data channels (reliable and unreliable)
+        connection.ondatachannel = (event) => {
+            const channel = event.channel;
+            if (channel.label === 'peared') {
+                this._log('info', 'Reliable data channel received from host');
+                this._setupDataChannel(channel, offerData.hostId);
+            } else if (channel.label === 'peared-fast') {
+                this._log('info', 'Unreliable data channel received from host');
+                this._setupUnreliableChannel(channel, offerData.hostId);
+            }
+        };
+
+        // ICE candidate gathering
+        const candidates = [];
+        connection.onicecandidate = (e) => {
+            if (e.candidate) {
+                candidates.push(e.candidate);
+                this._log('info', `ICE candidate gathered`, { type: e.candidate.type || 'unknown' });
+            }
+        };
+
+        // Connection state
+        connection.onconnectionstatechange = () => {
+            this._log('info', `Connection state: ${connection.connectionState}`);
+            if (connection.connectionState === 'connected') {
+                this.state = 'connected';
+                this._updateState();
+            } else if (connection.connectionState === 'disconnected' || connection.connectionState === 'failed') {
+                this._log('warning', 'Connection lost');
+                this.state = 'disconnected';
+                this._updateState();
+                this.options.onPlayerLeave({ id: offerData.hostId });
+            }
+        };
+
+        this.peers.set(offerData.hostId, {
+            connection,
+            dataChannel: null,
+            unreliableChannel: null,
+            player: { id: offerData.hostId, name: offerData.hostName, isHost: true }
+        });
+        
+        // Process offer
+        await connection.setRemoteDescription(new RTCSessionDescription(offerData.offer));
+        this._log('info', 'Remote description (offer) set');
+        
+        if (offerData.candidates) {
+            this._log('info', `Adding ${offerData.candidates.length} host ICE candidates`);
+            for (const candidate of offerData.candidates) {
+                await connection.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+        }
+        
+        // Create answer
+        const answer = await connection.createAnswer();
+        await connection.setLocalDescription(answer);
+        this._log('info', 'Local description (answer) set, gathering ICE...');
+        
+        // Wait for ICE gathering
+        await this._waitForIce(connection);
+        this._log('success', `Answer ready with ${candidates.length} ICE candidates`);
+        
+        return {
+            peerId: offerData.peerId,
+            answer: connection.localDescription,
+            player: this.localPlayer,
+            candidates
+        };
+    }
+    
+    _setupDataChannel(dataChannel, peerId) {
+        dataChannel.onopen = () => {
+            this._log('success', `Data channel OPEN with peer`, { peerId });
+            
+            const peer = this.peers.get(peerId) || this.pendingConnections.get(peerId);
+            if (peer) {
+                peer.dataChannel = dataChannel;
+                
+                if (this.isHost) {
+                    // Move from pending to active if needed
+                    if (this.pendingConnections.has(peerId)) {
+                        this.peers.set(peerId, peer);
+                        this.pendingConnections.delete(peerId);
+                    }
+                    this._updateConnectedPlayersList();
+                } else {
+                    this.state = 'connected';
+                    this._updateState();
+
+                    // Get local state (position) if available
+                    const localState = this.options.getState ? this.options.getState() : null;
+                    const myState = localState ? localState[this.localPlayer.id] : null;
+
+                    // Send our player info + initial state to host
+                    this._log('info', 'Sending player info to host');
+                    dataChannel.send(JSON.stringify({
+                        type: '_peared_join',
+                        data: {
+                            player: this.localPlayer,
+                            initialState: myState  // Include our position
+                        }
+                    }));
+                }
+            }
+        };
+        
+        dataChannel.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                this._log('info', `Message received: ${message.type}`, { from: message.from });
+                this._handleMessage(peerId, message);
+            } catch (e) {
+                this._log('error', 'Error parsing message', e.message);
+            }
+        };
+        
+        dataChannel.onclose = () => {
+            this._log('warning', `Data channel CLOSED with peer`, { peerId });
+            const peer = this.peers.get(peerId);
+            if (peer?.player) {
+                this.allPlayers.delete(peer.player.id);
+                this.options.onPlayerLeave(peer.player);
+
+                if (this.isHost) {
+                    // Notify other clients
+                    this.broadcast('_peared_leave', { playerId: peer.player.id }, peerId);
+                    this._updateConnectedPlayersList();
+                }
+            }
+            // Clean up voice chat for this peer
+            this._cleanupPeerAudio(peerId);
+            this.peers.delete(peerId);
+        };
+        
+        dataChannel.onerror = (error) => {
+            this._log('error', 'Data channel error', error);
+        };
+    }
+
+    _setupUnreliableChannel(channel, peerId) {
+        channel.onopen = () => {
+            this._log('success', `Unreliable channel OPEN with peer`, { peerId });
+
+            const peer = this.peers.get(peerId) || this.pendingConnections.get(peerId);
+            if (peer) {
+                peer.unreliableChannel = channel;
+            }
+        };
+
+        channel.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+
+                // If a dedicated unreliable handler exists, use it
+                if (this.options.onUnreliableMessage) {
+                    this.options.onUnreliableMessage(message.from, message.type, message.data);
+                } else {
+                    // Fall back to regular handler
+                    this._handleUnreliableMessage(peerId, message);
+                }
+            } catch (e) {
+                // Silently ignore parse errors on unreliable channel (expected with packet loss)
+            }
+        };
+
+        channel.onclose = () => {
+            this._log('info', `Unreliable channel closed`, { peerId });
+        };
+
+        channel.onerror = () => {
+            // Errors are expected on unreliable channels, ignore silently
+        };
+    }
+
+    _handleUnreliableMessage(fromPeerId, message) {
+        const { type, data, from } = message;
+
+        // Host relays unreliable messages to other clients
+        if (this.isHost) {
+            this.broadcastUnreliable(type, data, fromPeerId, from);
+        }
+
+        // Forward to game via regular message handler
+        this.options.onMessage(from, type, data);
+    }
+
+    _handleMessage(fromPeerId, message) {
+        const { type, data, from } = message;
+        console.log('[Peared] _handleMessage - fromPeerId:', fromPeerId, 'type:', type, 'from (in msg):', from);
+
+        // Internal Peared messages
+        if (type === '_peared_join') {
+            this._log('success', `Player joined: "${data.player.name}"`, { playerId: data.player.id });
+
+            // Add to allPlayers map
+            this.allPlayers.set(data.player.id, data.player);
+
+            if (this.isHost) {
+                // Host: store player info in peer entry
+                const peer = this.peers.get(fromPeerId);
+                if (peer) {
+                    peer.player = data.player;
+                }
+
+                // Notify game about new player first
+                this.options.onPlayerJoin(data.player);
+
+                // Apply new player's initial state if provided
+                if (data.initialState) {
+                    this._log('info', 'Applying new player initial state', data.initialState);
+                    this.options.onStateSync({
+                        [data.player.id]: data.initialState
+                    });
+                }
+
+                // Send current player list to new player
+                this.sendTo(fromPeerId, '_peared_players', {
+                    players: this.getPlayers()
+                });
+
+                // Notify other clients about new player FIRST (so they add the player)
+                this.broadcast('_peared_join', { player: data.player }, fromPeerId);
+
+                // THEN send full game state to everyone (so positions are correct)
+                if (this.options.getState) {
+                    const gameState = this.options.getState();
+                    this._log('info', 'Sending state sync to all players');
+                    // Send to new player
+                    this.sendTo(fromPeerId, '_peared_state', { state: gameState });
+                    // Broadcast to existing players so they get new player's position
+                    this.broadcast('_peared_state', { state: gameState }, fromPeerId);
+                }
+
+                this._updateConnectedPlayersList();
+            } else {
+                // Client receiving broadcast about another player joining
+                this.options.onPlayerJoin(data.player);
+            }
+            return;
+        }
+        
+        if (type === '_peared_players') {
+            // Client receiving full player list
+            this._log('info', `Received player list (${data.players.length} players)`);
+            data.players.forEach(player => {
+                // Add all players to allPlayers map
+                this.allPlayers.set(player.id, player);
+                if (player.id !== this.localPlayer?.id) {
+                    this.options.onPlayerJoin(player);
+                }
+            });
+            return;
+        }
+
+        if (type === '_peared_state') {
+            // Client receiving game state sync from host
+            this._log('info', 'Received state sync from host');
+            this.options.onStateSync(data.state);
+            return;
+        }
+
+        // Voice chat renegotiation messages
+        if (type === '_peared_renegotiate') {
+            this._handleRenegotiateOffer(fromPeerId, data);
+            return;
+        }
+
+        if (type === '_peared_renegotiate_answer') {
+            this._handleRenegotiateAnswer(fromPeerId, data);
+            return;
+        }
+
+        if (type === '_peared_leave') {
+            this.allPlayers.delete(data.playerId);
+            this.options.onPlayerLeave({ id: data.playerId });
+            return;
+        }
+        
+        // Game messages - relay to other clients with original sender preserved
+        if (this.isHost) {
+            this.broadcast(type, data, fromPeerId, from);
+        }
+
+        this.options.onMessage(from, type, data);
+    }
+    
+    async _waitForIce(connection, timeout = 5000) {
+        if (connection.iceGatheringState === 'complete') return;
+        
+        return new Promise((resolve) => {
+            const timer = setTimeout(resolve, timeout);
+            
+            const check = () => {
+                if (connection.iceGatheringState === 'complete') {
+                    clearTimeout(timer);
+                    resolve();
+                }
+            };
+            
+            connection.addEventListener('icegatheringstatechange', check);
+        });
+    }
+    
+    // ===== PRIVATE: UI MANAGEMENT =====
+    
+    _setupUI() {
+        // Tab switching
+        document.querySelectorAll('.peared-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const tabId = e.target.dataset.tab || e.target.dataset.subtab;
+                if (!tabId) return;
+                
+                const parent = e.target.parentElement;
+                parent.querySelectorAll('.peared-tab').forEach(t => t.classList.remove('active'));
+                e.target.classList.add('active');
+                
+                const isSubtab = e.target.dataset.subtab;
+                const contents = isSubtab 
+                    ? parent.parentElement.querySelectorAll(':scope > .peared-content')
+                    : document.querySelectorAll('#peared-host, #peared-join');
+                    
+                contents.forEach(c => c.classList.remove('active'));
+                document.getElementById(`peared-${tabId}`).classList.add('active');
+            });
+        });
+        
+        // Close popup
+        document.getElementById('peared-close').addEventListener('click', () => this.hidePopup());
+        document.getElementById('peared-overlay').addEventListener('click', (e) => {
+            if (e.target.id === 'peared-overlay') this.hidePopup();
+        });
+        
+        // Host button
+        document.getElementById('peared-start-host').addEventListener('click', () => this._startHosting());
+        
+        // Copy buttons
+        document.getElementById('peared-copy-code').addEventListener('click', () => {
+            const code = document.getElementById('peared-host-code');
+            code.select();
+            document.execCommand('copy');
+            document.getElementById('peared-copy-code').textContent = '✓ Copied!';
+            setTimeout(() => {
+                document.getElementById('peared-copy-code').textContent = '📋 Copy Code';
+            }, 2000);
+        });
+        
+        document.getElementById('peared-copy-answer').addEventListener('click', () => {
+            const code = document.getElementById('peared-answer-code');
+            code.select();
+            document.execCommand('copy');
+            document.getElementById('peared-copy-answer').textContent = '✓ Copied!';
+            setTimeout(() => {
+                document.getElementById('peared-copy-answer').textContent = '📋 Copy Response';
+            }, 2000);
+        });
+        
+        // Connect button (for client)
+        document.getElementById('peared-connect').addEventListener('click', () => this._handleJoinCode());
+        
+        // Accept Player button (for host)
+        document.getElementById('peared-accept-player').addEventListener('click', () => this._handleAcceptPlayer());
+        
+        // Camera buttons
+        document.getElementById('peared-start-camera').addEventListener('click', () => this._startCamera());
+        document.getElementById('peared-stop-camera').addEventListener('click', () => this._stopCamera());
+    }
+    
+    async _handleAcceptPlayer() {
+        const code = document.getElementById('peared-answer-input').value.trim();
+        if (!code) {
+            this._showStatus('Please paste the player\'s response code', 'warning');
+            return;
+        }
+        
+        this._log('info', 'Processing player response...');
+        
+        try {
+            const answerData = this._decompress(code);
+            
+            if (!answerData.answer) {
+                this._showStatus('Invalid response code - not an answer', 'error');
+                this._log('error', 'Invalid answer data - missing answer field');
+                return;
+            }
+            
+            const success = await this._processAnswer(answerData);
+            
+            if (success) {
+                this._showStatus('Player connecting...', 'success');
+                document.getElementById('peared-answer-input').value = '';
+                
+                // Generate new offer for next player
+                await this._refreshHostOffer();
+            } else {
+                this._showStatus('Failed to accept player - invalid or expired code', 'error');
+            }
+        } catch (error) {
+            this._log('error', 'Error accepting player', error.message);
+            this._showStatus('Error: ' + error.message, 'error');
+        }
+    }
+    
+    _updateConnectedPlayersList() {
+        const container = document.getElementById('peared-connected-players');
+        const noPlayersMsg = document.getElementById('peared-no-players');
+        
+        if (!container) return;
+        
+        const connectedPeers = Array.from(this.peers.values()).filter(p => p.player);
+        
+        if (connectedPeers.length === 0) {
+            if (noPlayersMsg) noPlayersMsg.style.display = 'block';
+        } else {
+            if (noPlayersMsg) noPlayersMsg.style.display = 'none';
+            
+            // Build player list HTML
+            let html = '<div class="peared-divider">— Connected Players —</div>';
+            connectedPeers.forEach(peer => {
+                html += `
+                    <div class="peared-pending-item">
+                        <span style="color: ${peer.player.color}">● ${peer.player.name}</span>
+                        <span style="color: #666; font-size: 11px;">Connected</span>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+    }
+    
+    async _startHosting() {
+        const playerName = document.getElementById('peared-player-name').value || 'Host';
+        const isPublic = document.getElementById('peared-public-room')?.checked ?? true;
+
+        this.host(playerName);
+
+        document.getElementById('peared-start-host').style.display = 'none';
+        document.getElementById('peared-host-active').style.display = 'block';
+        document.getElementById('peared-room-code').textContent = '......';
+
+        // Create Firebase room
+        try {
+            // Create offer FIRST (before room is visible)
+            this._log('info', 'Preparing connection offer...');
+            const offerData = await this._createHostOffer();
+            const compressed = this._compress(offerData);
+            document.getElementById('peared-host-code').value = compressed;
+
+            // NOW create the room with the offer already included
+            this.roomCode = await this.firebase.createRoomWithOffer(playerName, isPublic, offerData);
+            document.getElementById('peared-room-code').textContent = this.roomCode;
+            this._log('success', `Room created: ${this.roomCode}`);
+
+            // Start heartbeat to keep room alive
+            this._startHeartbeat();
+
+            // Listen for answers via Firebase
+            this.firebase.onAnswer(async (answerData) => {
+                this._log('info', 'Received answer via Firebase');
+                const success = await this._processAnswer(answerData);
+                if (success) {
+                    this._showStatus('Player connected!', 'success');
+                    // Generate new offer for next player
+                    await this._refreshHostOffer();
+                    // Update player count
+                    this.firebase.updatePlayerCount(this.getPlayers().length);
+                }
+            });
+
+        } catch (error) {
+            this._log('error', 'Failed to create room', error.message);
+            this._showStatus('Failed to create room: ' + error.message, 'error');
+            // Fallback to manual mode
+            document.getElementById('peared-room-code').textContent = 'OFFLINE';
+        }
+    }
+
+    async _refreshHostOffer() {
+        const offerData = await this._createHostOffer();
+        const compressed = this._compress(offerData);
+
+        // Update manual code field
+        document.getElementById('peared-host-code').value = compressed;
+
+        // Publish to Firebase
+        if (this.firebase.roomRef) {
+            await this.firebase.setOffer(offerData);
+        }
+    }
+    
+    async _handleJoinCode() {
+        const code = document.getElementById('peared-join-code').value.trim();
+        if (!code) {
+            this._showStatus('Please paste the host\'s code', 'warning');
+            return;
+        }
+        
+        this._log('info', 'Processing host code...');
+        
+        try {
+            const offerData = this._decompress(code);
+            this._log('info', `Host found: "${offerData.hostName}"`);
+            
+            this._showStatus('Connecting to ' + offerData.hostName + '...', 'info');
+            
+            const answerData = await this._createClientAnswer(offerData);
+            const compressed = this._compress(answerData);
+            
+            document.getElementById('peared-join-answer').style.display = 'block';
+            document.getElementById('peared-answer-code').value = compressed;
+            
+            this._showStatus('⚠️ Copy the response below and send it to the host!', 'warning');
+            this._log('success', 'Answer generated - waiting for host to accept');
+            
+        } catch (error) {
+            this._log('error', 'Error processing host code', error.message);
+            this._showStatus('Invalid code: ' + error.message, 'error');
+        }
+    }
+    
+    _showStatus(message, type) {
+        const status = document.getElementById('peared-status');
+        status.textContent = message;
+        status.className = `peared-status ${type}`;
+        status.style.display = 'block';
+    }
+    
+    _updateState() {
+        this.options.onStateChange(this.state, this.isHost);
+    }
+    
+    // Camera handling
+    async _startCamera() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            const video = document.getElementById('peared-video');
+            video.srcObject = stream;
+            await video.play();
+            
+            this._cameraStream = stream;
+            this._scanning = true;
+            
+            document.getElementById('peared-start-camera').style.display = 'none';
+            document.getElementById('peared-stop-camera').style.display = 'block';
+            
+            this._scanQR();
+        } catch (error) {
+            this._showStatus('Camera error: ' + error.message, 'error');
+        }
+    }
+    
+    _stopCamera() {
+        this._scanning = false;
+        if (this._cameraStream) {
+            this._cameraStream.getTracks().forEach(t => t.stop());
+            this._cameraStream = null;
+        }
+        document.getElementById('peared-video').srcObject = null;
+        document.getElementById('peared-start-camera').style.display = 'block';
+        document.getElementById('peared-stop-camera').style.display = 'none';
+    }
+    
+    _scanQR() {
+        if (!this._scanning) return;
+        
+        const video = document.getElementById('peared-video');
+        const canvas = document.getElementById('peared-canvas');
+        
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+            
+            if (code) {
+                this._stopCamera();
+                document.getElementById('peared-join-code').value = code.data;
+                this._handleJoinCode();
+                return;
+            }
+        }
+        
+        requestAnimationFrame(() => this._scanQR());
+    }
+    
+    // ===== PRIVATE: UTILITIES =====
+    
+    _generateId() {
+        return Math.random().toString(36).substring(2, 12);
+    }
+    
+    _generateColor() {
+        const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e91e63', '#00bcd4'];
+        return colors[Math.floor(Math.random() * colors.length)];
+    }
+    
+    _compress(data) {
+        const json = JSON.stringify(data);
+        const compressed = LZString.compressToEncodedURIComponent(json);
+        return compressed.length < json.length ? compressed : json;
+    }
+    
+    _decompress(data) {
+        try {
+            // Try as JSON first
+            return JSON.parse(data);
+        } catch {
+            // Try LZ decompression
+            const decompressed = LZString.decompressFromEncodedURIComponent(data);
+            return JSON.parse(decompressed);
+        }
+    }
+}
+
+/*=============================================
+  BLOCK WORLD GAME
+  =============================================
+  A simple multiplayer game where players are
+  colored cubes that can move around.
+=============================================*/
+
+class BlockWorld {
+    constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+        
+        this.players = new Map(); // playerId -> { x, y, name, color }
+        this.localPlayerId = null;
+        
+        this.keys = {};
+        this.moveSpeed = 5;
+        this.playerSize = 40;
+        
+        this._resize();
+        window.addEventListener('resize', () => this._resize());
+        
+        // Input handling
+        window.addEventListener('keydown', (e) => {
+            this.keys[e.key.toLowerCase()] = true;
+            this.keys[e.code] = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            this.keys[e.key.toLowerCase()] = false;
+            this.keys[e.code] = false;
+        });
+        
+        // Start game loop
+        this._lastUpdate = Date.now();
+        this._gameLoop();
+    }
+    
+    setLocalPlayer(player) {
+        console.log('[Game] setLocalPlayer:', player.id, player.name);
+        this.localPlayerId = player.id;
+        this.players.set(player.id, {
+            id: player.id,
+            x: this.canvas.width / 2,
+            y: this.canvas.height / 2,
+            name: player.name,
+            color: player.color,
+            isHost: player.isHost
+        });
+    }
+    
+    addPlayer(player) {
+        console.log('[Game] addPlayer called with:', player.id, player.name);
+        if (!this.players.has(player.id)) {
+            this.players.set(player.id, {
+                id: player.id,  // Store ID for debugging
+                x: Math.random() * (this.canvas.width - 100) + 50,
+                y: Math.random() * (this.canvas.height - 100) + 50,
+                name: player.name,
+                color: player.color,
+                isHost: player.isHost
+            });
+            console.log('[Game] Player added. Total players:', this.players.size);
+            console.log('[Game] Player IDs:', [...this.players.keys()]);
+        } else {
+            console.log('[Game] Player already exists:', player.id);
+        }
+    }
+    
+    removePlayer(playerId) {
+        this.players.delete(playerId);
+    }
+    
+    updatePlayer(playerId, data) {
+        console.log('[Game] updatePlayer called with ID:', playerId, 'localPlayerId:', this.localPlayerId);
+        const player = this.players.get(playerId);
+        if (player) {
+            console.log('[Game] Found player to update:', player.name);
+            player.x = data.x;
+            player.y = data.y;
+            if (data.name) player.name = data.name;
+        } else {
+            console.log('[Game] Player NOT FOUND! Available IDs:', [...this.players.keys()]);
+        }
+    }
+    
+    getLocalPlayerState() {
+        const local = this.players.get(this.localPlayerId);
+        if (local) {
+            return { x: local.x, y: local.y, name: local.name };
+        }
+        return null;
+    }
+    
+    _resize() {
+        this.canvas.width = this.canvas.parentElement.clientWidth;
+        this.canvas.height = this.canvas.parentElement.clientHeight;
+    }
+    
+    _gameLoop() {
+        const now = Date.now();
+        const dt = (now - this._lastUpdate) / 1000;
+        this._lastUpdate = now;
+        
+        this._update(dt);
+        this._render();
+        
+        requestAnimationFrame(() => this._gameLoop());
+    }
+    
+    _update(dt) {
+        const local = this.players.get(this.localPlayerId);
+        if (!local) return;
+        
+        let moved = false;
+        
+        // Movement
+        if (this.keys['arrowleft'] || this.keys['a'] || this.keys['ArrowLeft']) {
+            local.x -= this.moveSpeed;
+            moved = true;
+        }
+        if (this.keys['arrowright'] || this.keys['d'] || this.keys['ArrowRight']) {
+            local.x += this.moveSpeed;
+            moved = true;
+        }
+        if (this.keys['arrowup'] || this.keys['w'] || this.keys['ArrowUp']) {
+            local.y -= this.moveSpeed;
+            moved = true;
+        }
+        if (this.keys['arrowdown'] || this.keys['s'] || this.keys['ArrowDown']) {
+            local.y += this.moveSpeed;
+            moved = true;
+        }
+        
+        // Bounds
+        local.x = Math.max(this.playerSize/2, Math.min(this.canvas.width - this.playerSize/2, local.x));
+        local.y = Math.max(this.playerSize/2, Math.min(this.canvas.height - this.playerSize/2, local.y));
+        
+        // Emit movement if changed
+        if (moved && this._onMove) {
+            this._onMove({ x: local.x, y: local.y });
+        }
+    }
+    
+    onMove(callback) {
+        this._onMove = callback;
+    }
+    
+    _render() {
+        const ctx = this.ctx;
+        
+        // Clear with grid background
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        // Grid
+        ctx.strokeStyle = '#2a2a4e';
+        ctx.lineWidth = 1;
+        const gridSize = 50;
+        
+        for (let x = 0; x < this.canvas.width; x += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, this.canvas.height);
+            ctx.stroke();
+        }
+        for (let y = 0; y < this.canvas.height; y += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(this.canvas.width, y);
+            ctx.stroke();
+        }
+        
+        // Draw players
+        this.players.forEach((player, id) => {
+            const isLocal = id === this.localPlayerId;
+
+            // For remote players, use interpolated position if available
+            let renderX = player.x;
+            let renderY = player.y;
+
+            if (!isLocal && this._interpolator) {
+                const interpolated = this._interpolator.getState(id);
+                if (interpolated) {
+                    renderX = interpolated.x;
+                    renderY = interpolated.y;
+                }
+            }
+
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillRect(
+                renderX - this.playerSize/2 + 4,
+                renderY - this.playerSize/2 + 4,
+                this.playerSize,
+                this.playerSize
+            );
+
+            // Player cube
+            ctx.fillStyle = player.color;
+            ctx.fillRect(
+                renderX - this.playerSize/2,
+                renderY - this.playerSize/2,
+                this.playerSize,
+                this.playerSize
+            );
+
+            // Highlight for local player
+            if (isLocal) {
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(
+                    renderX - this.playerSize/2,
+                    renderY - this.playerSize/2,
+                    this.playerSize,
+                    this.playerSize
+                );
+            }
+
+            // Name tag
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(
+                player.name + (player.isHost ? ' 👑' : ''),
+                renderX,
+                renderY - this.playerSize/2 - 10
+            );
+        });
+    }
+
+    // Set interpolator reference for smooth remote player rendering
+    setInterpolator(interpolator) {
+        this._interpolator = interpolator;
+    }
+}
+
+/*=============================================
+  MAIN APPLICATION
+  =============================================*/
+
+// Initialize game
+const game = new BlockWorld('game-canvas');
+
+// Initialize Peared networking (interpolator will be connected after)
+const peared = new Peared({
+    interpolationDelay: 100, // 100ms interpolation buffer
+
+    // Enable persistence for this game
+    gameId: 'block-world',
+    autoSaveInterval: 30000, // Auto-save every 30 seconds
+
+    onPlayerJoin: (player) => {
+        console.log('Player joined:', player);
+        game.addPlayer(player);
+        updatePlayerList();
+    },
+
+    onPlayerLeave: (player) => {
+        console.log('Player left:', player);
+        game.removePlayer(player.id);
+        peared.interpolator.removePlayer(player.id); // Clean up interpolation buffer
+        updatePlayerList();
+    },
+
+    // Reliable messages (game events, chat, etc.)
+    onMessage: (from, type, data) => {
+        console.log('[Peared] onMessage (reliable) - from:', from, 'type:', type);
+        // Handle any reliable game messages here
+    },
+
+    // Unreliable messages (high-frequency position updates)
+    onUnreliableMessage: (from, type, data) => {
+        if (type === 'pos') {
+            // Push to interpolation buffer instead of directly updating
+            peared.pushStateForInterpolation(from, data);
+        }
+    },
+
+    onStateChange: (state, isHost) => {
+        updateConnectionUI(state, isHost);
+    },
+
+    // State sync: host provides current game state
+    getState: () => {
+        const state = {};
+        game.players.forEach((player, id) => {
+            state[id] = { x: player.x, y: player.y };
+        });
+        console.log('[Game] getState called, returning:', state);
+        return state;
+    },
+
+    // State sync: clients receive and apply game state
+    onStateSync: (state) => {
+        console.log('[Game] onStateSync received:', state);
+        Object.entries(state).forEach(([id, pos]) => {
+            game.updatePlayer(id, pos);
+        });
+    }
+});
+
+// Connect game to peared's interpolator for smooth remote player rendering
+game.setInterpolator(peared.interpolator);
+
+// Send position updates via UNRELIABLE channel (high frequency, drops OK)
+let lastSentPosition = { x: 0, y: 0 };
+let lastSendTime = 0;
+const SEND_RATE = 50; // Send at most every 50ms (20 updates/sec)
+
+game.onMove((position) => {
+    const now = Date.now();
+
+    // Throttle by time AND distance
+    if (now - lastSendTime >= SEND_RATE &&
+        (Math.abs(position.x - lastSentPosition.x) > 1 ||
+         Math.abs(position.y - lastSentPosition.y) > 1)) {
+
+        // Use unreliable channel for position updates
+        peared.sendUnreliable('pos', position);
+        lastSentPosition = { ...position };
+        lastSendTime = now;
+    }
+});
+
+// UI Updates
+function updatePlayerList() {
+    const container = document.getElementById('players');
+    const players = peared.getPlayers();
+    
+    container.innerHTML = players.map(p => `
+        <div class="player-item">
+            <div class="player-color" style="background: ${p.color}"></div>
+            <span class="player-name">${p.name}</span>
+            ${p.isHost ? '<span class="player-host">HOST</span>' : ''}
+        </div>
+    `).join('');
+}
+
+function updateConnectionUI(state, isHost) {
+    const btn = document.getElementById('connect-btn');
+    const status = document.getElementById('connection-status');
+    const voiceControls = document.getElementById('voice-controls');
+
+    if (state === 'hosting') {
+        btn.textContent = '🎮 Hosting...';
+        btn.className = 'hosting';
+        status.textContent = `Hosting as ${peared.localPlayer?.name}`;
+        voiceControls.style.display = 'flex';
+    } else if (state === 'connected') {
+        btn.textContent = '✓ Connected';
+        btn.className = 'connected';
+        status.textContent = `Connected to game`;
+        voiceControls.style.display = 'flex';
+        peared.hidePopup();
+    } else {
+        btn.textContent = '🎮 Host or Join';
+        btn.className = '';
+        status.textContent = 'Not connected';
+        voiceControls.style.display = 'none';
+    }
+
+    updatePlayerList();
+}
+
+// Connect button
+document.getElementById('connect-btn').addEventListener('click', () => {
+    peared.showPopup();
+});
+
+// Voice chat button
+document.getElementById('peared-voice-btn').addEventListener('click', async () => {
+    if (!peared.isVoiceEnabled()) {
+        // Enable voice
+        const success = await peared.enableVoice();
+        if (!success) {
+            alert('Could not access microphone. Please check permissions.');
+        }
+    } else if (peared.isMuted()) {
+        // Unmute
+        peared.unmute();
+    } else {
+        // Mute
+        peared.mute();
+    }
+});
+
+// ===== WORLD/SAVE MANAGEMENT =====
+
+let lastSavedWorld = null;
+let lastSaveTime = null;
+
+// Helper to format time ago
+function formatTimeAgo(timestamp) {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+// Check for saved worlds when popup opens
+const originalShowPopup = peared.showPopup.bind(peared);
+peared.showPopup = async function() {
+    originalShowPopup();
+
+    // Check for saved worlds
+    if (peared.persistence) {
+        const worlds = await peared.listWorlds();
+        const worldSection = document.getElementById('peared-world-section');
+        const worldName = document.getElementById('peared-world-name');
+        const worldTime = document.getElementById('peared-world-time');
+
+        if (worlds.length > 0) {
+            lastSavedWorld = worlds[0]; // Most recent
+            worldSection.style.display = 'block';
+            worldName.textContent = lastSavedWorld.name;
+            worldTime.textContent = formatTimeAgo(lastSavedWorld.updatedAt);
+        } else {
+            worldSection.style.display = 'none';
+        }
+    }
+};
+
+// Manual save button
+document.getElementById('peared-save-now')?.addEventListener('click', async () => {
+    if (!peared.isHost) return;
+
+    const btn = document.getElementById('peared-save-now');
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+
+    // Get current game state
+    const state = {};
+    game.players.forEach((p, id) => {
+        state[id] = { x: p.x, y: p.y, name: p.name, color: p.color };
+    });
+
+    await peared.saveWorld('world-default', `${peared.localPlayer.name}'s World`, state);
+
+    lastSaveTime = Date.now();
+    updateLastSaveUI();
+
+    btn.textContent = 'Saved!';
+    setTimeout(() => {
+        btn.textContent = 'Save Now';
+        btn.disabled = false;
+    }, 1500);
+});
+
+// Update last save indicator
+function updateLastSaveUI() {
+    const el = document.getElementById('peared-last-save');
+    if (el && lastSaveTime) {
+        el.textContent = `Last saved ${formatTimeAgo(lastSaveTime)}`;
+    }
+}
+
+// Update last save time periodically
+setInterval(() => {
+    if (lastSaveTime) {
+        updateLastSaveUI();
+    }
+}, 30000);
+
+// Function to get game state for saving
+function getGameStateForSave() {
+    const state = {};
+    game.players.forEach((p, id) => {
+        state[id] = { x: p.x, y: p.y, name: p.name, color: p.color };
+    });
+    return state;
+}
+
+// Initialize local player visually when hosting starts
+const originalHost = peared.host.bind(peared);
+peared.host = async function(name) {
+    const player = originalHost(name);
+    game.setLocalPlayer(player);
+
+    // Check if we should resume from saved world
+    const resumeCheckbox = document.getElementById('peared-resume-world');
+    const shouldResume = resumeCheckbox?.checked && lastSavedWorld;
+
+    if (shouldResume) {
+        try {
+            const world = await peared.loadWorld(lastSavedWorld.id);
+            if (world?.data) {
+                console.log('[Game] Restoring saved positions:', world.data);
+                // Find and apply the host's saved position
+                Object.entries(world.data).forEach(([savedId, pos]) => {
+                    // Try to match by name since IDs are regenerated
+                    if (pos.name === player.name) {
+                        const localPlayer = game.players.get(player.id);
+                        if (localPlayer) {
+                            localPlayer.x = pos.x;
+                            localPlayer.y = pos.y;
+                            console.log(`[Game] Restored position for ${player.name}: (${pos.x}, ${pos.y})`);
+                        }
+                    }
+                });
+            }
+        } catch (error) {
+            console.warn('[Game] Failed to restore saved world:', error);
+        }
+    }
+
+    // Start auto-save for the world (saves player positions)
+    peared.startAutoSave(
+        () => {
+            lastSaveTime = Date.now();
+            updateLastSaveUI();
+            return getGameStateForSave();
+        },
+        'world-default',
+        `${name}'s World`
+    );
+
+    return player;
+};
+
+// Handle when client connects (manual method)
+const originalCreateClientAnswer = peared._createClientAnswer.bind(peared);
+peared._createClientAnswer = async function(offerData) {
+    const answer = await originalCreateClientAnswer(offerData);
+    game.setLocalPlayer(peared.localPlayer);
+    return answer;
+};
+
+// Handle when client connects via Firebase
+const originalCreateClientAnswerFromOffer = peared._createClientAnswerFromOffer.bind(peared);
+peared._createClientAnswerFromOffer = async function(offerData) {
+    const answer = await originalCreateClientAnswerFromOffer(offerData);
+    game.setLocalPlayer(peared.localPlayer);
+    return answer;
+};
+</script>
+</body>
+</html>

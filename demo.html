@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peared Demo - Block Shooter</title>
+    <!-- Just Peared - Firebase SDK loads automatically -->
+    <script src="lib/peared.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            overflow: hidden;
+        }
+
+        /* Game Canvas */
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        #game-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: crosshair;
+        }
+
+        /* Game UI Overlay */
+        #game-ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 100;
+        }
+        #player-list {
+            background: rgba(0,0,0,0.7);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            min-width: 180px;
+        }
+        #player-list h3 {
+            margin-bottom: 8px;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #888;
+        }
+        .player-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        .player-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+        .player-name {
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .player-stats {
+            font-size: 11px;
+            color: #888;
+            margin-left: 8px;
+            white-space: nowrap;
+        }
+        .player-stats .kills { color: #4CAF50; }
+        .player-stats .deaths { color: #e74c3c; }
+        .player-host {
+            font-size: 10px;
+            background: #4CAF50;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-left: 5px;
+        }
+
+        /* Local player HUD */
+        #local-hud {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            padding: 12px 24px;
+            border-radius: 8px;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        #health-bar {
+            width: 150px;
+            height: 20px;
+            background: #333;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        #health-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #e74c3c, #2ecc71);
+            transition: width 0.2s;
+        }
+        #health-text {
+            font-size: 12px;
+            color: #fff;
+            margin-top: 4px;
+        }
+        #ammo-display {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        #ammo-display .label {
+            font-size: 10px;
+            color: #888;
+            display: block;
+        }
+
+        /* Connection Button */
+        #connect-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            z-index: 100;
+        }
+        #connect-btn:hover { background: #45a049; }
+        #connect-btn.hosting { background: #2196F3; }
+        #connect-btn.connected { background: #666; }
+
+        /* Connection Status */
+        #connection-status {
+            position: absolute;
+            top: 60px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 100;
+        }
+        #avg-ping {
+            color: #888;
+            margin-left: 10px;
+        }
+
+        /* Instructions */
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 100;
+        }
+
+        /* Kill feed */
+        #kill-feed {
+            position: absolute;
+            top: 100px;
+            right: 10px;
+            z-index: 100;
+            font-size: 13px;
+        }
+        .kill-entry {
+            background: rgba(0,0,0,0.7);
+            padding: 6px 12px;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            animation: fadeIn 0.3s;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        /* Voice Chat Controls */
+        #voice-controls {
+            position: absolute;
+            bottom: 120px;
+            right: 10px;
+            z-index: 100;
+            display: flex;
+            gap: 8px;
+        }
+        .voice-btn {
+            background: #555;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .voice-btn:hover { background: #666; }
+        .voice-btn.active { background: #4CAF50; }
+        .voice-btn.muted { background: #c0392b; }
+    </style>
+</head>
+<body>
+    <!-- Game Container -->
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+
+        <!-- Game UI -->
+        <div id="game-ui">
+            <div id="player-list">
+                <h3>Scoreboard</h3>
+                <div id="players"></div>
+            </div>
+        </div>
+
+        <!-- Local Player HUD -->
+        <div id="local-hud" style="display: none;">
+            <div>
+                <div id="health-bar"><div id="health-fill" style="width: 100%"></div></div>
+                <div id="health-text">100 HP</div>
+            </div>
+            <div id="ammo-display">
+                <span class="label">AMMO</span>
+                <span id="ammo-count">∞</span>
+            </div>
+        </div>
+
+        <button id="connect-btn">Host or Join</button>
+        <div id="connection-status">Not connected <span id="avg-ping"></span></div>
+        <div id="instructions">WASD to move • Click to shoot • Blocks shoot blocks!</div>
+
+        <!-- Kill Feed -->
+        <div id="kill-feed"></div>
+
+        <!-- Voice Chat Controls -->
+        <div id="voice-controls" style="display: none;">
+            <button id="voice-btn" class="voice-btn">Enable Voice</button>
+        </div>
+    </div>
+
+<script>
+/*=============================================
+  BLOCK SHOOTER GAME
+  A simple 2D shooter where blocks shoot blocks!
+=============================================*/
+
+class BlockShooter {
+    constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+
+        // Players
+        this.players = new Map();
+        this.localPlayerId = null;
+
+        // Projectiles - Map of id -> projectile data
+        // Projectiles are owned/simulated by the player who shot them
+        this.projectiles = new Map();
+        this.nextProjectileId = 0;
+
+        // Game settings
+        this.playerSize = 40;
+        this.projectileSize = 12;
+        this.projectileSpeed = 15;
+        this.moveSpeed = 5;
+        this.maxHealth = 100;
+        this.damage = 25;
+        this.shootCooldown = 200; // ms between shots
+        this.respawnTime = 3000; // ms
+
+        // Input
+        this.keys = {};
+        this.mouseX = 0;
+        this.mouseY = 0;
+        this.lastShootTime = 0;
+
+        // Stats
+        this.stats = new Map(); // playerId -> { kills, deaths }
+
+        this._resize();
+        window.addEventListener('resize', () => this._resize());
+
+        // Keyboard input
+        window.addEventListener('keydown', (e) => {
+            this.keys[e.key.toLowerCase()] = true;
+            this.keys[e.code] = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            this.keys[e.key.toLowerCase()] = false;
+            this.keys[e.code] = false;
+        });
+
+        // Mouse input
+        this.canvas.addEventListener('mousemove', (e) => {
+            const rect = this.canvas.getBoundingClientRect();
+            this.mouseX = e.clientX - rect.left;
+            this.mouseY = e.clientY - rect.top;
+        });
+
+        this.canvas.addEventListener('click', (e) => {
+            this._tryShoot();
+        });
+
+        // Start game loop
+        this._lastUpdate = Date.now();
+        this._gameLoop();
+    }
+
+    // ===== PLAYER MANAGEMENT =====
+
+    setLocalPlayer(player) {
+        this.localPlayerId = player.id;
+        this.players.set(player.id, {
+            id: player.id,
+            x: this.canvas.width / 2,
+            y: this.canvas.height / 2,
+            name: player.name,
+            color: player.color,
+            isHost: player.isHost,
+            health: this.maxHealth,
+            isDead: false,
+            respawnTime: 0
+        });
+        this.stats.set(player.id, { kills: 0, deaths: 0 });
+        document.getElementById('local-hud').style.display = 'flex';
+    }
+
+    addPlayer(player) {
+        if (!this.players.has(player.id)) {
+            this.players.set(player.id, {
+                id: player.id,
+                x: Math.random() * (this.canvas.width - 100) + 50,
+                y: Math.random() * (this.canvas.height - 100) + 50,
+                name: player.name,
+                color: player.color,
+                isHost: player.isHost,
+                health: this.maxHealth,
+                isDead: false,
+                respawnTime: 0
+            });
+            this.stats.set(player.id, { kills: 0, deaths: 0 });
+        }
+    }
+
+    removePlayer(playerId) {
+        this.players.delete(playerId);
+        // Remove all projectiles from this player
+        for (const [id, proj] of this.projectiles) {
+            if (proj.ownerId === playerId) {
+                this.projectiles.delete(id);
+            }
+        }
+    }
+
+    updatePlayer(playerId, data) {
+        const player = this.players.get(playerId);
+        if (player) {
+            if (data.x !== undefined) player.x = data.x;
+            if (data.y !== undefined) player.y = data.y;
+            if (data.health !== undefined) player.health = data.health;
+            if (data.isDead !== undefined) player.isDead = data.isDead;
+        }
+    }
+
+    getStats(playerId) {
+        return this.stats.get(playerId) || { kills: 0, deaths: 0 };
+    }
+
+    // ===== PROJECTILE MANAGEMENT =====
+
+    // Create a new projectile (local player shooting)
+    shoot(x, y, targetX, targetY) {
+        const id = `${this.localPlayerId}-${this.nextProjectileId++}`;
+        const angle = Math.atan2(targetY - y, targetX - x);
+
+        const projectile = {
+            id,
+            ownerId: this.localPlayerId,
+            x,
+            y,
+            vx: Math.cos(angle) * this.projectileSpeed,
+            vy: Math.sin(angle) * this.projectileSpeed,
+            color: this.players.get(this.localPlayerId)?.color || '#fff',
+            createdAt: Date.now()
+        };
+
+        this.projectiles.set(id, projectile);
+
+        // Notify others about this projectile
+        if (this._onShoot) {
+            this._onShoot(projectile);
+        }
+
+        return projectile;
+    }
+
+    // Add a projectile from another player
+    addRemoteProjectile(data) {
+        if (!this.projectiles.has(data.id)) {
+            this.projectiles.set(data.id, {
+                ...data,
+                createdAt: Date.now()
+            });
+        }
+    }
+
+    // Remove a projectile (hit or out of bounds)
+    removeProjectile(id) {
+        this.projectiles.delete(id);
+    }
+
+    // ===== HIT DETECTION & DAMAGE =====
+
+    // Called when we detect our projectile hit someone
+    registerHit(projectileId, targetPlayerId) {
+        const target = this.players.get(targetPlayerId);
+        const projectile = this.projectiles.get(projectileId);
+
+        if (!target || !projectile || target.isDead) return;
+
+        // Remove the projectile
+        this.projectiles.delete(projectileId);
+
+        // Apply damage locally for immediate feedback
+        target.health -= this.damage;
+
+        // Notify about the hit
+        if (this._onHit) {
+            this._onHit({
+                projectileId,
+                targetId: targetPlayerId,
+                shooterId: projectile.ownerId,
+                damage: this.damage,
+                newHealth: target.health
+            });
+        }
+
+        // Check for kill
+        if (target.health <= 0) {
+            this._handleKill(projectile.ownerId, targetPlayerId);
+        }
+    }
+
+    // Apply damage from network (authoritative from host or shooter)
+    applyDamage(targetId, damage, shooterId) {
+        const target = this.players.get(targetId);
+        if (!target || target.isDead) return;
+
+        target.health -= damage;
+
+        if (target.health <= 0) {
+            this._handleKill(shooterId, targetId);
+        }
+
+        // Update HUD if local player was hit
+        if (targetId === this.localPlayerId) {
+            this._updateHealthUI();
+        }
+    }
+
+    _handleKill(killerId, victimId) {
+        const victim = this.players.get(victimId);
+        if (!victim || victim.isDead) return;
+
+        victim.isDead = true;
+        victim.health = 0;
+        victim.respawnTime = Date.now() + this.respawnTime;
+
+        // Update stats
+        const killerStats = this.stats.get(killerId);
+        const victimStats = this.stats.get(victimId);
+        if (killerStats) killerStats.kills++;
+        if (victimStats) victimStats.deaths++;
+
+        // Notify about kill
+        if (this._onKill) {
+            this._onKill(killerId, victimId);
+        }
+
+        // Update HUD
+        if (victimId === this.localPlayerId) {
+            this._updateHealthUI();
+        }
+    }
+
+    respawnPlayer(playerId) {
+        const player = this.players.get(playerId);
+        if (!player) return;
+
+        player.isDead = false;
+        player.health = this.maxHealth;
+        player.x = Math.random() * (this.canvas.width - 100) + 50;
+        player.y = Math.random() * (this.canvas.height - 100) + 50;
+        player.respawnTime = 0;
+
+        if (playerId === this.localPlayerId) {
+            this._updateHealthUI();
+            if (this._onRespawn) {
+                this._onRespawn({ x: player.x, y: player.y, health: player.health });
+            }
+        }
+    }
+
+    // ===== GAME LOOP =====
+
+    _resize() {
+        this.canvas.width = this.canvas.parentElement.clientWidth;
+        this.canvas.height = this.canvas.parentElement.clientHeight;
+    }
+
+    _gameLoop() {
+        const now = Date.now();
+        const dt = (now - this._lastUpdate) / 1000;
+        this._lastUpdate = now;
+
+        this._update(dt, now);
+        this._render();
+
+        requestAnimationFrame(() => this._gameLoop());
+    }
+
+    _update(dt, now) {
+        // Update local player movement
+        const local = this.players.get(this.localPlayerId);
+        if (local && !local.isDead) {
+            let moved = false;
+
+            if (this.keys['a'] || this.keys['arrowleft']) {
+                local.x -= this.moveSpeed;
+                moved = true;
+            }
+            if (this.keys['d'] || this.keys['arrowright']) {
+                local.x += this.moveSpeed;
+                moved = true;
+            }
+            if (this.keys['w'] || this.keys['arrowup']) {
+                local.y -= this.moveSpeed;
+                moved = true;
+            }
+            if (this.keys['s'] || this.keys['arrowdown']) {
+                local.y += this.moveSpeed;
+                moved = true;
+            }
+
+            // Clamp to bounds
+            local.x = Math.max(this.playerSize/2, Math.min(this.canvas.width - this.playerSize/2, local.x));
+            local.y = Math.max(this.playerSize/2, Math.min(this.canvas.height - this.playerSize/2, local.y));
+
+            if (moved && this._onMove) {
+                this._onMove({ x: local.x, y: local.y, health: local.health });
+            }
+        }
+
+        // Check for respawn
+        if (local && local.isDead && now >= local.respawnTime) {
+            this.respawnPlayer(this.localPlayerId);
+        }
+
+        // Update projectiles
+        const toRemove = [];
+        for (const [id, proj] of this.projectiles) {
+            // Move projectile
+            proj.x += proj.vx;
+            proj.y += proj.vy;
+
+            // Check bounds
+            if (proj.x < 0 || proj.x > this.canvas.width ||
+                proj.y < 0 || proj.y > this.canvas.height) {
+                toRemove.push(id);
+                continue;
+            }
+
+            // Check collision with players (only check our own projectiles for hits)
+            if (proj.ownerId === this.localPlayerId) {
+                for (const [playerId, player] of this.players) {
+                    if (playerId === this.localPlayerId) continue; // Can't hit yourself
+                    if (player.isDead) continue;
+
+                    // Get interpolated position for remote players
+                    let targetX = player.x;
+                    let targetY = player.y;
+                    if (this._interpolator) {
+                        const interp = this._interpolator.getState(playerId);
+                        if (interp) {
+                            targetX = interp.x;
+                            targetY = interp.y;
+                        }
+                    }
+
+                    // AABB collision
+                    const halfSize = this.playerSize / 2;
+                    const projHalf = this.projectileSize / 2;
+                    if (proj.x + projHalf > targetX - halfSize &&
+                        proj.x - projHalf < targetX + halfSize &&
+                        proj.y + projHalf > targetY - halfSize &&
+                        proj.y - projHalf < targetY + halfSize) {
+                        this.registerHit(id, playerId);
+                        toRemove.push(id);
+                        break;
+                    }
+                }
+            }
+
+            // Remove old projectiles (cleanup)
+            if (now - proj.createdAt > 5000) {
+                toRemove.push(id);
+            }
+        }
+
+        toRemove.forEach(id => this.projectiles.delete(id));
+    }
+
+    _tryShoot() {
+        const local = this.players.get(this.localPlayerId);
+        if (!local || local.isDead) return;
+
+        const now = Date.now();
+        if (now - this.lastShootTime < this.shootCooldown) return;
+
+        this.lastShootTime = now;
+        this.shoot(local.x, local.y, this.mouseX, this.mouseY);
+    }
+
+    _updateHealthUI() {
+        const local = this.players.get(this.localPlayerId);
+        if (!local) return;
+
+        const healthFill = document.getElementById('health-fill');
+        const healthText = document.getElementById('health-text');
+        const percent = Math.max(0, (local.health / this.maxHealth) * 100);
+
+        healthFill.style.width = percent + '%';
+        healthText.textContent = local.isDead ? 'RESPAWNING...' : `${Math.max(0, local.health)} HP`;
+    }
+
+    // ===== RENDERING =====
+
+    _render() {
+        const ctx = this.ctx;
+
+        // Clear
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Grid
+        ctx.strokeStyle = '#2a2a4e';
+        ctx.lineWidth = 1;
+        const gridSize = 50;
+        for (let x = 0; x < this.canvas.width; x += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, this.canvas.height);
+            ctx.stroke();
+        }
+        for (let y = 0; y < this.canvas.height; y += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(this.canvas.width, y);
+            ctx.stroke();
+        }
+
+        // Render projectiles
+        for (const [id, proj] of this.projectiles) {
+            ctx.fillStyle = proj.color;
+            ctx.fillRect(
+                proj.x - this.projectileSize/2,
+                proj.y - this.projectileSize/2,
+                this.projectileSize,
+                this.projectileSize
+            );
+            // Glow effect
+            ctx.shadowColor = proj.color;
+            ctx.shadowBlur = 10;
+            ctx.fillRect(
+                proj.x - this.projectileSize/2,
+                proj.y - this.projectileSize/2,
+                this.projectileSize,
+                this.projectileSize
+            );
+            ctx.shadowBlur = 0;
+        }
+
+        // Render players
+        this.players.forEach((player, id) => {
+            const isLocal = id === this.localPlayerId;
+
+            // Get render position (interpolated for remote players)
+            let renderX = player.x;
+            let renderY = player.y;
+            if (!isLocal && this._interpolator) {
+                const interp = this._interpolator.getState(id);
+                if (interp) {
+                    renderX = interp.x;
+                    renderY = interp.y;
+                }
+            }
+
+            // Don't render dead players (or show ghost)
+            if (player.isDead) {
+                ctx.globalAlpha = 0.3;
+            }
+
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillRect(
+                renderX - this.playerSize/2 + 4,
+                renderY - this.playerSize/2 + 4,
+                this.playerSize,
+                this.playerSize
+            );
+
+            // Player block
+            ctx.fillStyle = player.color;
+            ctx.fillRect(
+                renderX - this.playerSize/2,
+                renderY - this.playerSize/2,
+                this.playerSize,
+                this.playerSize
+            );
+
+            // Local player border
+            if (isLocal) {
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(
+                    renderX - this.playerSize/2,
+                    renderY - this.playerSize/2,
+                    this.playerSize,
+                    this.playerSize
+                );
+            }
+
+            // Health bar (above player)
+            if (!player.isDead) {
+                const barWidth = this.playerSize;
+                const barHeight = 6;
+                const barY = renderY - this.playerSize/2 - 15;
+
+                // Background
+                ctx.fillStyle = '#333';
+                ctx.fillRect(renderX - barWidth/2, barY, barWidth, barHeight);
+
+                // Health
+                const healthPercent = player.health / this.maxHealth;
+                ctx.fillStyle = healthPercent > 0.5 ? '#2ecc71' : healthPercent > 0.25 ? '#f1c40f' : '#e74c3c';
+                ctx.fillRect(renderX - barWidth/2, barY, barWidth * healthPercent, barHeight);
+            }
+
+            // Name
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(
+                player.name,
+                renderX,
+                renderY - this.playerSize/2 - 22
+            );
+
+            ctx.globalAlpha = 1;
+        });
+
+        // Aim line for local player
+        const local = this.players.get(this.localPlayerId);
+        if (local && !local.isDead) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(local.x, local.y);
+            ctx.lineTo(this.mouseX, this.mouseY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+    }
+
+    // ===== CALLBACKS =====
+
+    onMove(callback) { this._onMove = callback; }
+    onShoot(callback) { this._onShoot = callback; }
+    onHit(callback) { this._onHit = callback; }
+    onKill(callback) { this._onKill = callback; }
+    onRespawn(callback) { this._onRespawn = callback; }
+    setInterpolator(interp) { this._interpolator = interp; }
+
+    // Get full state for sync
+    getState() {
+        const state = { players: {}, stats: {} };
+        this.players.forEach((p, id) => {
+            state.players[id] = { x: p.x, y: p.y, health: p.health, isDead: p.isDead };
+        });
+        this.stats.forEach((s, id) => {
+            state.stats[id] = { kills: s.kills, deaths: s.deaths };
+        });
+        return state;
+    }
+
+    // Apply full state from sync
+    applyState(state) {
+        if (state.players) {
+            Object.entries(state.players).forEach(([id, data]) => {
+                this.updatePlayer(id, data);
+            });
+        }
+        if (state.stats) {
+            Object.entries(state.stats).forEach(([id, data]) => {
+                this.stats.set(id, data);
+            });
+        }
+    }
+}
+
+/*=============================================
+  MAIN APPLICATION
+  Using Peared with ui: true for zero-config setup
+=============================================*/
+
+const game = new BlockShooter('game-canvas');
+
+const peared = new Peared({
+    ui: true,
+    gameId: 'block-shooter-demo',
+    interpolationDelay: 100,
+    enableHostMigration: true,
+    pingInterval: 2000,
+
+    onPlayerJoin: (player) => {
+        console.log('Player joined:', player.name);
+        game.addPlayer(player);
+        updatePlayerList();
+
+        if (player.id === peared.localPlayer?.id) {
+            game.setLocalPlayer(player);
+        }
+    },
+
+    onPlayerLeave: (player) => {
+        console.log('Player left:', player.id);
+        game.removePlayer(player.id);
+        peared.interpolator.removePlayer(player.id);
+        updatePlayerList();
+    },
+
+    onUnreliableMessage: (from, type, data) => {
+        if (type === 'pos') {
+            // Position update with health
+            peared.pushStateForInterpolation(from, data);
+            game.updatePlayer(from, data);
+        } else if (type === 'shoot') {
+            // Remote player shot
+            game.addRemoteProjectile(data);
+        }
+    },
+
+    onMessage: (from, type, data) => {
+        if (type === 'hit') {
+            // Someone got hit - remove projectile and apply damage
+            game.removeProjectile(data.projectileId);
+            if (data.targetId !== peared.localPlayer?.id) {
+                // Apply damage to non-local players
+                game.applyDamage(data.targetId, data.damage, data.shooterId);
+            }
+            updatePlayerList();
+        } else if (type === 'kill') {
+            // Kill event
+            addKillFeed(data.killerName, data.victimName, data.killerColor);
+            updatePlayerList();
+        } else if (type === 'respawn') {
+            // Someone respawned
+            game.updatePlayer(from, {
+                x: data.x,
+                y: data.y,
+                health: data.health,
+                isDead: false
+            });
+        }
+    },
+
+    onStateChange: (state, isHost) => {
+        updateConnectionUI(state, isHost);
+    },
+
+    onConnectionQualityChange: (peerId, quality, ping) => {
+        updatePlayerList();
+    },
+
+    onHostMigration: (player, event) => {
+        if (event === 'became_host') {
+            console.log('You are now the host!');
+        }
+        updatePlayerList();
+    },
+
+    getState: () => game.getState(),
+
+    onStateSync: (state) => {
+        game.applyState(state);
+        updatePlayerList();
+    }
+});
+
+game.setInterpolator(peared.interpolator);
+
+// ===== GAME EVENT HANDLERS =====
+
+// Position updates (throttled)
+let lastSentPosition = { x: 0, y: 0 };
+let lastSendTime = 0;
+const SEND_RATE = 50;
+
+game.onMove((data) => {
+    const now = Date.now();
+    if (now - lastSendTime >= SEND_RATE) {
+        peared.sendUnreliable('pos', data);
+        lastSentPosition = { x: data.x, y: data.y };
+        lastSendTime = now;
+    }
+});
+
+// Shooting - send to all players
+game.onShoot((projectile) => {
+    peared.sendUnreliable('shoot', projectile);
+});
+
+// Hit detection - send reliably
+game.onHit((hitData) => {
+    peared.send('hit', hitData);
+});
+
+// Kill event - send reliably
+game.onKill((killerId, victimId) => {
+    const killer = game.players.get(killerId);
+    const victim = game.players.get(victimId);
+
+    peared.send('kill', {
+        killerId,
+        victimId,
+        killerName: killer?.name || 'Unknown',
+        victimName: victim?.name || 'Unknown',
+        killerColor: killer?.color || '#fff'
+    });
+
+    addKillFeed(killer?.name, victim?.name, killer?.color);
+    updatePlayerList();
+});
+
+// Respawn - send position
+game.onRespawn((data) => {
+    peared.send('respawn', data);
+});
+
+// Update ping display periodically
+setInterval(() => {
+    if (peared.state !== 'disconnected') {
+        const avgPing = peared.getAveragePing();
+        const pingEl = document.getElementById('avg-ping');
+        if (avgPing > 0) {
+            pingEl.textContent = `(${avgPing}ms)`;
+        }
+    }
+}, 2000);
+
+/*=============================================
+  UI FUNCTIONS
+=============================================*/
+
+function updatePlayerList() {
+    const container = document.getElementById('players');
+    const players = peared.getPlayers();
+
+    // Sort by kills
+    const sortedPlayers = players.map(p => ({
+        ...p,
+        stats: game.getStats(p.id)
+    })).sort((a, b) => b.stats.kills - a.stats.kills);
+
+    container.innerHTML = sortedPlayers.map(p => {
+        return `
+            <div class="player-item">
+                <div class="player-color" style="background: ${p.color}"></div>
+                <span class="player-name">${p.name}</span>
+                <span class="player-stats">
+                    <span class="kills">${p.stats.kills}</span>/<span class="deaths">${p.stats.deaths}</span>
+                </span>
+                ${p.isHost ? '<span class="player-host">HOST</span>' : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+function addKillFeed(killerName, victimName, killerColor) {
+    const feed = document.getElementById('kill-feed');
+    const entry = document.createElement('div');
+    entry.className = 'kill-entry';
+    entry.innerHTML = `<span style="color:${killerColor}">${killerName}</span> eliminated <span style="color:#e74c3c">${victimName}</span>`;
+    feed.appendChild(entry);
+
+    // Remove after 5 seconds
+    setTimeout(() => {
+        entry.style.opacity = '0';
+        entry.style.transition = 'opacity 0.3s';
+        setTimeout(() => entry.remove(), 300);
+    }, 5000);
+
+    // Keep only last 5 entries
+    while (feed.children.length > 5) {
+        feed.removeChild(feed.firstChild);
+    }
+}
+
+function updateConnectionUI(state, isHost) {
+    const btn = document.getElementById('connect-btn');
+    const status = document.getElementById('connection-status');
+    const voiceControls = document.getElementById('voice-controls');
+
+    if (state === 'hosting') {
+        btn.textContent = 'Hosting...';
+        btn.className = 'hosting';
+        status.innerHTML = `Hosting as ${peared.localPlayer?.name} <span id="avg-ping"></span>`;
+        voiceControls.style.display = 'flex';
+    } else if (state === 'connected') {
+        btn.textContent = 'Connected';
+        btn.className = 'connected';
+        status.innerHTML = `Connected to game <span id="avg-ping"></span>`;
+        voiceControls.style.display = 'flex';
+        peared.hidePopup();
+    } else {
+        btn.textContent = 'Host or Join';
+        btn.className = '';
+        status.innerHTML = 'Not connected <span id="avg-ping"></span>';
+        voiceControls.style.display = 'none';
+    }
+
+    updatePlayerList();
+}
+
+/*=============================================
+  EVENT LISTENERS
+=============================================*/
+
+document.getElementById('connect-btn').addEventListener('click', () => {
+    peared.showPopup();
+});
+
+document.getElementById('voice-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('voice-btn');
+
+    if (!peared.isVoiceEnabled()) {
+        const success = await peared.enableVoice();
+        if (success) {
+            btn.textContent = 'Voice On';
+            btn.className = 'voice-btn active';
+        } else {
+            alert('Could not access microphone');
+        }
+    } else if (peared.isMuted()) {
+        peared.unmute();
+        btn.textContent = 'Voice On';
+        btn.className = 'voice-btn active';
+    } else {
+        peared.mute();
+        btn.textContent = 'Muted';
+        btn.className = 'voice-btn muted';
+    }
+});
+</script>
+</body>
+</html>
