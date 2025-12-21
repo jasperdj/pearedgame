@@ -410,10 +410,16 @@ class BlockShooter {
 
     // Add a projectile from another player
     addRemoteProjectile(data) {
+        const now = Date.now();
+        const createdAt = data.createdAt || now;
+
+        // Drop stale projectiles (e.g., tab was throttled and message arrived late)
+        if (now - createdAt > 1000) return;
+
         if (!this.projectiles.has(data.id)) {
             this.projectiles.set(data.id, {
                 ...data,
-                createdAt: Date.now()
+                createdAt
             });
         }
     }
