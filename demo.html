@@ -412,13 +412,21 @@ class BlockShooter {
     addRemoteProjectile(data) {
         const now = Date.now();
         const createdAt = data.createdAt || now;
+        const elapsed = now - createdAt;
 
-        // Drop stale projectiles (e.g., tab was throttled and message arrived late)
-        if (now - createdAt > 1000) return;
+        // Drop very stale projectiles (e.g., tab was throttled and message arrived late)
+        if (elapsed > 5000) return;
+
+        // Fast-forward projectile to current time based on elapsed frames (~60fps)
+        const steps = Math.floor(elapsed / 16); // approx frames elapsed
+        const advancedX = data.x + (data.vx || 0) * steps;
+        const advancedY = data.y + (data.vy || 0) * steps;
 
         if (!this.projectiles.has(data.id)) {
             this.projectiles.set(data.id, {
                 ...data,
+                x: advancedX,
+                y: advancedY,
                 createdAt
             });
         }
