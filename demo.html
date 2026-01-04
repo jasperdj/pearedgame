@@ -372,6 +372,7 @@ class BlockShooter {
             if (data.y !== undefined) player.y = data.y;
             if (data.health !== undefined) player.health = data.health;
             if (data.isDead !== undefined) player.isDead = data.isDead;
+            if (data.respawnTime !== undefined) player.respawnTime = data.respawnTime;
         }
     }
 
@@ -394,7 +395,8 @@ class BlockShooter {
             vx: Math.cos(angle) * this.projectileSpeed,
             vy: Math.sin(angle) * this.projectileSpeed,
             color: this.players.get(this.localPlayerId)?.color || '#fff',
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            lastUpdate: Date.now()
         };
 
         this.projectiles.set(id, projectile);
@@ -409,10 +411,25 @@ class BlockShooter {
 
     // Add a projectile from another player
     addRemoteProjectile(data) {
+        const now = Date.now();
+        const createdAt = data.createdAt || now;
+        const elapsed = now - createdAt;
+
+        // Drop very stale projectiles (e.g., tab was throttled and message arrived late)
+        if (elapsed > 5000) return;
+
+        // Fast-forward projectile to current time using elapsed time since creation
+        const stepFactor = elapsed / (1000 / 60); // 60fps baseline
+        const advancedX = data.x + (data.vx || 0) * stepFactor;
+        const advancedY = data.y + (data.vy || 0) * stepFactor;
+
         if (!this.projectiles.has(data.id)) {
             this.projectiles.set(data.id, {
                 ...data,
-                createdAt: Date.now()
+                x: advancedX,
+                y: advancedY,
+                createdAt,
+                lastUpdate: now
             });
         }
     }
@@ -434,23 +451,14 @@ class BlockShooter {
         // Remove the projectile
         this.projectiles.delete(projectileId);
 
-        // Apply damage locally for immediate feedback
-        target.health -= this.damage;
-
-        // Notify about the hit
+        // Notify about the hit (host will apply damage)
         if (this._onHit) {
             this._onHit({
                 projectileId,
                 targetId: targetPlayerId,
                 shooterId: projectile.ownerId,
-                damage: this.damage,
-                newHealth: target.health
+                damage: this.damage
             });
-        }
-
-        // Check for kill
-        if (target.health <= 0) {
-            this._handleKill(projectile.ownerId, targetPlayerId);
         }
     }
 
@@ -498,7 +506,7 @@ class BlockShooter {
 
     respawnPlayer(playerId) {
         const player = this.players.get(playerId);
-        if (!player) return;
+        if (!player) return null;
 
         player.isDead = false;
         player.health = this.maxHealth;
@@ -512,6 +520,8 @@ class BlockShooter {
                 this._onRespawn({ x: player.x, y: player.y, health: player.health });
             }
         }
+
+        return { x: player.x, y: player.y, health: player.health };
     }
 
     // ===== GAME LOOP =====
@@ -572,9 +582,13 @@ class BlockShooter {
         // Update projectiles
         const toRemove = [];
         for (const [id, proj] of this.projectiles) {
+            const elapsed = now - (proj.lastUpdate || now);
+            const stepFactor = Math.max(1, elapsed / (1000 / 60)); // move based on real time elapsed
+
             // Move projectile
-            proj.x += proj.vx;
-            proj.y += proj.vy;
+            proj.x += proj.vx * stepFactor;
+            proj.y += proj.vy * stepFactor;
+            proj.lastUpdate = now;
 
             // Check bounds
             if (proj.x < 0 || proj.x > this.canvas.width ||
@@ -621,6 +635,18 @@ class BlockShooter {
         }
 
         toRemove.forEach(id => this.projectiles.delete(id));
+
+        // Host-driven respawn handling
+        if (peared?.isHost) {
+            for (const [playerId, player] of this.players) {
+                if (player.isDead && player.respawnTime && now >= player.respawnTime) {
+                    const state = this.respawnPlayer(playerId);
+                    if (state) {
+                        peared.send('respawn', { playerId, ...state });
+                    }
+                }
+            }
+        }
     }
 
     _tryShoot() {
@@ -838,12 +864,18 @@ const peared = new Peared({
 
     onPlayerJoin: (player) => {
         console.log('Player joined:', player.name);
-        game.addPlayer(player);
-        updatePlayerList();
+
+        ensureLocalPlayer();
 
         if (player.id === peared.localPlayer?.id) {
-            game.setLocalPlayer(player);
+            if (!game.players.has(player.id)) {
+                game.setLocalPlayer(player);
+            }
+        } else {
+            game.addPlayer(player);
         }
+
+        updatePlayerList();
     },
 
     onPlayerLeave: (player) => {
@@ -866,20 +898,35 @@ const peared = new Peared({
 
     onMessage: (from, type, data) => {
         if (type === 'hit') {
-            // Someone got hit - remove projectile and apply damage
-            game.removeProjectile(data.projectileId);
-            if (data.targetId !== peared.localPlayer?.id) {
-                // Apply damage to non-local players
-                game.applyDamage(data.targetId, data.damage, data.shooterId);
+            // Only the host applies damage
+            if (peared.isHost) {
+                processHostHit(data);
+            }
+        } else if (type === 'damage') {
+            game.updatePlayer(data.targetId, {
+                health: data.health,
+                isDead: data.isDead,
+                respawnTime: data.respawnTime
+            });
+
+            if (data.targetId === peared.localPlayer?.id) {
+                game._updateHealthUI();
             }
             updatePlayerList();
         } else if (type === 'kill') {
             // Kill event
             addKillFeed(data.killerName, data.victimName, data.killerColor);
+            if (data.killerStats) {
+                game.stats.set(data.killerId, data.killerStats);
+            }
+            if (data.victimStats) {
+                game.stats.set(data.victimId, data.victimStats);
+            }
             updatePlayerList();
         } else if (type === 'respawn') {
             // Someone respawned
-            game.updatePlayer(from, {
+            const targetId = data.playerId || from;
+            game.updatePlayer(targetId, {
                 x: data.x,
                 y: data.y,
                 health: data.health,
@@ -889,6 +936,7 @@ const peared = new Peared({
     },
 
     onStateChange: (state, isHost) => {
+        ensureLocalPlayer();
         updateConnectionUI(state, isHost);
     },
 
@@ -906,12 +954,30 @@ const peared = new Peared({
     getState: () => game.getState(),
 
     onStateSync: (state) => {
+        ensureLocalPlayer();
         game.applyState(state);
         updatePlayerList();
     }
 });
 
 game.setInterpolator(peared.interpolator);
+
+function processHostHit(hitData) {
+    const target = game.players.get(hitData.targetId);
+    const shooter = game.players.get(hitData.shooterId);
+    if (!target || !shooter || target.isDead) return;
+
+    game.removeProjectile(hitData.projectileId);
+    game.applyDamage(target.id, game.damage, shooter.id);
+
+    const updatedTarget = game.players.get(target.id);
+    peared.send('damage', {
+        targetId: target.id,
+        health: Math.max(0, updatedTarget.health),
+        isDead: updatedTarget.isDead,
+        respawnTime: updatedTarget.respawnTime
+    });
+}
 
 // ===== GAME EVENT HANDLERS =====
 
@@ -936,7 +1002,11 @@ game.onShoot((projectile) => {
 
 // Hit detection - send reliably
 game.onHit((hitData) => {
-    peared.send('hit', hitData);
+    if (peared.isHost) {
+        processHostHit(hitData);
+    } else {
+        peared.send('hit', hitData);
+    }
 });
 
 // Kill event - send reliably
@@ -944,13 +1014,17 @@ game.onKill((killerId, victimId) => {
     const killer = game.players.get(killerId);
     const victim = game.players.get(victimId);
 
-    peared.send('kill', {
-        killerId,
-        victimId,
-        killerName: killer?.name || 'Unknown',
-        victimName: victim?.name || 'Unknown',
-        killerColor: killer?.color || '#fff'
-    });
+    if (peared.isHost) {
+        peared.send('kill', {
+            killerId,
+            victimId,
+            killerName: killer?.name || 'Unknown',
+            victimName: victim?.name || 'Unknown',
+            killerColor: killer?.color || '#fff',
+            killerStats: game.getStats(killerId),
+            victimStats: game.getStats(victimId)
+        });
+    }
 
     addKillFeed(killer?.name, victim?.name, killer?.color);
     updatePlayerList();
@@ -979,6 +1053,7 @@ setInterval(() => {
 function updatePlayerList() {
     const container = document.getElementById('players');
     const players = peared.getPlayers();
+    const hostId = getHostId(players);
 
     // Sort by kills
     const sortedPlayers = players.map(p => ({
@@ -994,10 +1069,31 @@ function updatePlayerList() {
                 <span class="player-stats">
                     <span class="kills">${p.stats.kills}</span>/<span class="deaths">${p.stats.deaths}</span>
                 </span>
-                ${p.isHost ? '<span class="player-host">HOST</span>' : ''}
+                ${p.id === hostId ? '<span class="player-host">HOST</span>' : ''}
             </div>
         `;
     }).join('');
+}
+
+function ensureLocalPlayer() {
+    const localPlayer = peared.localPlayer;
+    if (!localPlayer) return;
+
+    if (!game.players.has(localPlayer.id)) {
+        game.setLocalPlayer(localPlayer);
+    }
+}
+
+function getHostId(players) {
+    const explicitHost = players.find(p => p.isHost);
+    if (explicitHost) return explicitHost.id;
+
+    if (peared.isHost && peared.localPlayer?.id) return peared.localPlayer.id;
+
+    const peerHost = peared.peers?.values?.().next()?.value?.player;
+    if (peerHost?.id) return peerHost.id;
+
+    return players[0]?.id || null;
 }
 
 function addKillFeed(killerName, victimName, killerColor) {
